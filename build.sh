@@ -48,7 +48,8 @@ DEV="$MCSDK/c2000ware/device_support/f28004x"
 DLIB="$MCSDK/c2000ware/driverlib/f28004x/driverlib"
 BD="$HERE/boards/$BOARD"
 CL="$CGT/bin/cl2000"
-OUT="$HERE/build/${BOARD}_${LAB}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
+# 输出按板分目录: build/<BOARD>/<LAB>/  (避免两块板的 lab 平铺在一起)
+OUT="$HERE/build/${BOARD}/${LAB}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
 
 [ -d "$BD" ] || { echo "未知板: $BOARD (见 boards/)"; exit 1; }
 [ -d "$MCSDK" ] || { echo "找不到 MCSDK: $MCSDK (设置 MCSDK_ROOT 或放在工程内)"; exit 1; }

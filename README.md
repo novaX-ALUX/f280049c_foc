@@ -51,7 +51,7 @@ is07_speed_control    速度环
 ## 已完成
 - [x] SDK 6.0 安装 + F28004x 支持核实
 - [x] `is01_intro_hal`（RAM/EABI）命令行编译+链接验证通过 → 合法 c28xabi ELF 镜像
-- [x] `build.sh`（参数化 `BOARD × LAB`，按 BOARD 注入板 ID / 附加源，输出到 `build/<BOARD>_<LAB>/`）
+- [x] `build.sh`（参数化 `BOARD × LAB`，按 BOARD 注入板 ID / 附加源，输出到 `build/<BOARD>/<LAB>/`）
 - [x] **esc6288_revA**: 栅驱从 DRV8320 SPI 模板收敛为 `gate_driver.c/.h` + `board.h`；HAL GPIO 安全清理
 - [x] **launchxl_drv8305evm 验证平台（阶段 1–3）**:
   - 引脚映射(Site 1/J1-J4)从 SysConfig 板文件定死 → `is01` 引脚全对编译通过
