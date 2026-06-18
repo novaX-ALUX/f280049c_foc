@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 参数化构建: 选 板(BOARD) × 实验/应用(LAB)
+# 参数化构建: 选 板(BOARD) × 电机(MOTOR) × 实验/应用(LAB)
 #   BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh
 #   BOARD=launchxl_drv8305evm LAB=all       bash build.sh   # 冒烟编全部单电机 lab + 汇总
 # 板级 HAL/驱动/链接器来自 boards/$BOARD/; FOC 库 + lab 主程序来自 SDK.
@@ -38,9 +38,9 @@ if [ "$LAB" = "all" ]; then
          | xargs -n1 basename | sed 's/\.c$//' | grep -vx 'is11_dual_motor' | sort || true)
   [ -n "$labs" ] || { echo "未发现 lab 源 (MCSDK=$MCSDK)"; exit 1; }
   pass=0; fail=0; failed=""
-  echo ">>> 冒烟编译 BOARD=$BOARD 全部单电机 lab ..."
+  echo ">>> 冒烟编译 BOARD=$BOARD MOTOR=$MOTOR 全部单电机 lab ..."
   for L in $labs; do
-    log="/tmp/buildall_${BOARD}_${L}.log"
+    log="/tmp/buildall_${BOARD}_${MOTOR}_${L}.log"
     if BOARD="$BOARD" LAB="$L" bash "$SELF" >"$log" 2>&1; then
       printf "  OK    %-26s warnings=%s\n" "$L" "$(grep -ci warning "$log" || true)"
       pass=$((pass+1))
@@ -49,7 +49,7 @@ if [ "$LAB" = "all" ]; then
       fail=$((fail+1)); failed="$failed $L"
     fi
   done
-  echo ">>> 汇总 [$BOARD]: $pass 过, $fail 失败.${failed:+  失败:$failed}"
+  echo ">>> 汇总 [$BOARD/$MOTOR]: $pass 过, $fail 失败.${failed:+  失败:$failed}"
   if [ "$fail" -ne 0 ]; then exit 1; fi
   exit 0
 fi
