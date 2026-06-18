@@ -76,6 +76,7 @@ is07_speed_control    速度环
 bash build.sh                                           # 默认 esc6288_revA / is01
 BOARD=esc6288_revA        LAB=is01_intro_hal bash build.sh
 BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh   # 验证平台(DRV8305_SPI 自动启用)
+BOARD=launchxl_drv8305evm LAB=all            bash build.sh   # 冒烟: 编全部单电机 lab + 汇总(回归用)
 MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 ```
 - `BOARD` → `build.sh` 注入 `-DBUILD_BOARD_ID`,各 `board.h` 自检防板/构建错配。

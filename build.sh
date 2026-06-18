@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 参数化构建: 选 板(BOARD) × 实验/应用(LAB)
 #   BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh
+#   BOARD=launchxl_drv8305evm LAB=all       bash build.sh   # 冒烟编全部单电机 lab + 汇总
 # 板级 HAL/驱动/链接器来自 boards/$BOARD/; FOC 库 + lab 主程序来自 SDK.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -18,6 +19,31 @@ esac
 
 CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS}"
 MCSDK="${MCSDK_ROOT:-$HERE/C2000Ware_MotorControl_SDK_6_00_00_00}"
+
+# LAB=all: 冒烟编译该 BOARD 全部受支持单电机 lab(排除 is11 双电机), 汇总通过/失败
+if [ "$LAB" = "all" ]; then
+  [ -d "$MCSDK" ] || { echo "找不到 MCSDK: $MCSDK (设 MCSDK_ROOT)"; exit 1; }
+  SELF="$HERE/$(basename "$0")"
+  labs=$(ls "$MCSDK/solutions/common/sensorless_foc/source/"is*.c 2>/dev/null \
+         | xargs -n1 basename | sed 's/\.c$//' | grep -vx 'is11_dual_motor' | sort || true)
+  [ -n "$labs" ] || { echo "未发现 lab 源 (MCSDK=$MCSDK)"; exit 1; }
+  pass=0; fail=0; failed=""
+  echo ">>> 冒烟编译 BOARD=$BOARD 全部单电机 lab ..."
+  for L in $labs; do
+    log="/tmp/buildall_${BOARD}_${L}.log"
+    if BOARD="$BOARD" LAB="$L" bash "$SELF" >"$log" 2>&1; then
+      printf "  OK    %-26s warnings=%s\n" "$L" "$(grep -ci warning "$log" || true)"
+      pass=$((pass+1))
+    else
+      printf "  FAIL  %-26s (日志 %s)\n" "$L" "$log"
+      fail=$((fail+1)); failed="$failed $L"
+    fi
+  done
+  echo ">>> 汇总 [$BOARD]: $pass 过, $fail 失败.${failed:+  失败:$failed}"
+  if [ "$fail" -ne 0 ]; then exit 1; fi
+  exit 0
+fi
+
 DEV="$MCSDK/c2000ware/device_support/f28004x"
 DLIB="$MCSDK/c2000ware/driverlib/f28004x/driverlib"
 BD="$HERE/boards/$BOARD"
