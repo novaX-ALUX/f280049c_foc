@@ -48,6 +48,10 @@
 #include "hal.h"
 #include "hal_obj.h"
 
+#ifdef DRV8305_SPI
+#include "drv8305.h"
+#endif
+
 // libraries
 #include "datalog.h"
 
@@ -185,7 +189,14 @@ void HAL_enableDRV(HAL_Handle handle)
 {
   HAL_Obj *obj = (HAL_Obj *)handle;
 
+  // Assert EN_GATE: enables the gate drivers and wakes the DRV8305.
   GATE_DRIVER_enable(obj->gateDriverHandle);
+
+#ifdef DRV8305_SPI
+  // DRV8305 needs ~1 ms after EN_GATE before SPI/registers are valid.
+  SysCtl_delay((uint32_t)((DEVICE_SYSCLK_FREQ / 1000U) / 5U));
+  DRV8305_configure(obj->spiHandle[0]);
+#endif
 
   return;
 }  // end of HAL_enableDRV() function
@@ -834,6 +845,12 @@ void HAL_setupGate(HAL_Handle handle)
     HAL_Obj *obj = (HAL_Obj *)handle;
 
     GATE_DRIVER_setEnableGPIO(obj->gateDriverHandle, HAL_DRV_EN_GATE_GPIO);
+
+#ifdef DRV8305_SPI
+    // Bring up SPIA so the DRV8305 can be configured once it is awake
+    // (EN_GATE asserted in HAL_enableDRV()).
+    HAL_setupSPIA(handle);
+#endif
 
     return;
 } // HAL_setupGate() function

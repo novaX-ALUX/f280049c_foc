@@ -55,10 +55,15 @@
     手工接易错且 is01/02/03 不依赖过流, 故暂留此精确清单, 不手工硬接。
   - 备注: WithoutOffsets 读函数对本 lab 是死代码(is01/is02 只调 WithOffsets), 未改。
     J5/J6 EPWM1/2/4 引脚仍被配置但 booster 不接, 无害。
-- [ ] **阶段3 DRV8305 SPI 驱动** (drivers/source/drv8305.c + include/drv8305.h)
-  - 从 MotorWare drv8305.h 移植寄存器/枚举到 driverlib 风格
-  - 上电序列: WAKE→EN_GATE→写 CTRL 寄存器(CSA 增益 10V/V, 死区, OC 阈值)→读 nFAULT/状态
-  - build.sh 增加 `--define=DRV8305_SPI` 与源文件
+- [x] **阶段3 DRV8305 SPI 驱动** (drivers/source/drv8305.c + include/drv8305.h)
+  - [x] 寄存器图/枚举从 MotorWare 移植到 driverlib 风格(16-bit 帧, 地址枚举, CSA 增益)
+  - [x] `DRV8305_writeSpi/readSpi`(driverlib `SPI_*BlockingFIFO`)+ `DRV8305_configure`
+        (清故障 + CSA 增益 10V/V → 配 47.14A; 栅驱/死区留 EVM 默认)
+  - [x] 接入 HAL: `HAL_setupGate`→`HAL_setupSPIA`(SPI 之前未被调用, 已接);
+        `HAL_enableDRV`→ EN_GATE 唤醒 + ~1ms 延时 + `DRV8305_configure`
+  - [x] `build.sh` 按 BOARD 加 `drv8305.c` + `--define=DRV8305_SPI`; 两板均编译通过
+  - ⚠️ **待硬件确认**: SPI 通信(读状态/ID)、6-PWM 模式(Control 7)、VDS 过流阈值/栅驱电流/死区
+        按实测电机调; SPI 极性已按 MotorWare(POL0PHA0)设, 上板抓波形复核。
 - [ ] **阶段4 上电 bring-up**: is02 标定 → is03 自检(低压/小电流先) → is05 辨识 → is06/07 调环
 
 ## 待你提供(阶段4 前)

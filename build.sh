@@ -63,6 +63,14 @@ C_SRCS=(
   "$BD/drivers/source/hal.c"
   "$MCSDK/solutions/common/sensorless_foc/source/${LAB}.c"
 )
+
+# 板级附加源/宏: DRV8305EVM 需要 SPI 寄存器驱动
+case "$BOARD" in
+  launchxl_drv8305evm)
+    C_SRCS+=( "$BD/drivers/source/drv8305.c" )
+    DEFINES="$DEFINES --define=DRV8305_SPI"
+    ;;
+esac
 ASM_SRCS=( "$DEV/common/source/f28004x_codestartbranch.asm" )
 LIBS=(
   "$DLIB/ccs/Release/driverlib_eabi.lib"
