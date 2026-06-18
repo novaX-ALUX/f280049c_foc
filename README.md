@@ -22,6 +22,12 @@ is06_torque_control   转矩环
 is07_speed_control    速度环
 ... is13_fwc_mtpa      弱磁/MTPA
 ```
+> 单电机 lab(is01–is10, is12, is13)两块板均命令行链接通过、0 告警。
+> **is11_dual_motor 不适用**(双电机,需已移除的 `user_m1/m2/dm`+`hal_dm` 脚手架);
+> `build.sh` 选到它会直接报错退出。
+>
+> 各 lab 所需控制模块源(`vs_freq/vsf/fwc/mtpa`)已并入 `build.sh`;is12 自动加 `_VSF_EN_` 宏。
+
 每个实验有 EABI 和 COFF 两版 —— **本工程用 EABI**。
 
 ## 板卡（两块并存，正交于控制核心）

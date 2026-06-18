@@ -16,7 +16,7 @@
 | U H/L | 40/39 | GPIO10/11 | EPWM6A/6B |
 | V H/L | 38/37 | GPIO8/9   | EPWM5A/5B |
 | W H/L | 36/35 | GPIO4/5   | EPWM3A/3B |
-| Ia/Ib/Ic | 27/28/29 | ADCIN B2/C0/A9 | CMPSS1/3/5 |
+| Ia/Ib/Ic | 27/28/29 | ADCIN B2/C0/A9 | CMPSS 3/1/6(权威见阶段2 表;非 5/3/1) |
 | Va/Vb/Vc | 23/24/25 | ADCIN A5/B0/C2 | — |
 | Vbus | 26 | ADCIN B1 | — |
 | SPI CLK/STE/SIMO/SOMI | 7/19/15/14 | GPIO56/57/16/17 | SPIA |

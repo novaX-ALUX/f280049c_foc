@@ -50,6 +50,10 @@ C_SRCS=(
   "$MCSDK/libraries/control/ctrl/source/ctrl.c"
   "$MCSDK/libraries/filter/filter_fo/source/filter_fo.c"
   "$MCSDK/libraries/control/pi/source/pi.c"
+  "$MCSDK/libraries/control/vs_freq/source/vs_freq.c"
+  "$MCSDK/libraries/control/vsf/source/vsf.c"
+  "$MCSDK/libraries/control/fwc/source/fwc.c"
+  "$MCSDK/libraries/control/mtpa/source/mtpa.c"
   "$MCSDK/libraries/transforms/clarke/source/clarke.c"
   "$MCSDK/libraries/transforms/park/source/park.c"
   "$MCSDK/libraries/transforms/ipark/source/ipark.c"
@@ -70,6 +74,20 @@ case "$BOARD" in
     C_SRCS+=( "$BD/drivers/source/drv8305.c" )
     DEFINES="$DEFINES --define=DRV8305_SPI"
     ;;
+esac
+
+# lab 专属宏: 某些 lab 用 #ifdef 开启可选控制特性
+case "$LAB" in
+  is12_variable_pwm_frequency) DEFINES="$DEFINES --define=_VSF_EN_" ;;   # 在线变开关频率
+esac
+
+# 不支持的 lab: is11 是双电机, 需要 user_m1/m2/dm + labs_dm/hal_dm 脚手架
+# (单电机收敛时已移除)。两块板均为单电机目标。
+case "$LAB" in
+  is11_dual_motor)
+    echo "LAB=$LAB 不支持: 双电机 lab 需要已移除的 user_m1/m2/dm + hal_dm 脚手架。"
+    echo "  本工程两块板(esc6288_revA / launchxl_drv8305evm)均为单电机目标。"
+    exit 2 ;;
 esac
 ASM_SRCS=( "$DEV/common/source/f28004x_codestartbranch.asm" )
 LIBS=(

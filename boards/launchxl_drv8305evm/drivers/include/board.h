@@ -64,7 +64,9 @@
 
 //----------------------------------------------------------------------------
 // 电流采样 (低边分流 -> DRV8305 内置 CSA -> ADC), 带 CMPSS 过流
-//   Ia=ADCINB2(CMPSS1), Ib=ADCINC0(CMPSS3), Ic=ADCINA9(CMPSS5)
+//   Ia=ADCINB2(CMPSS3/HP0), Ib=ADCINC0(CMPSS1/HP1), Ic=ADCINA9(CMPSS6/HP3)
+//   (数据手册 Table 5-1 权威值; 注意 hal.c 仍是继承的 CMPSS5/3/1 路径, 过流保护待重接,
+//    见 PORT_TODO 阶段2 ⚠️)
 //----------------------------------------------------------------------------
 #define BOARD_NUM_CURRENT_SENSORS           (3U)
 // (ADC base/通道/SOC 与 CMPSS 实例在 hal.c 配置, 见 PORT_TODO 阶段2)
