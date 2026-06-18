@@ -78,7 +78,7 @@ extern "C" {
 
 //! \brief Defines the comparator number for current prection
 //!
-#define HAL_NUM_CMPSS_CURRENT           3
+#define HAL_NUM_CMPSS_CURRENT           BOARD_NUM_CURRENT_SENSORS
 
 
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
@@ -92,19 +92,15 @@ extern "C" {
 
 //! \brief Defines the gpio for the nFAULT of Power Module device
 //!
-#define HAL_PM_nFAULT_GPIO              40
+#define HAL_PM_nFAULT_GPIO              BOARD_GATE_FAULT_GPIO
 
 //! \brief Defines the gpio for the OCTW of Power Module device
 //!
-#define HAL_PM_nOCTW_GPIO               40
-
-//! \brief Defines the gpio for the SPI_CS of DRV device
-//!
-#define HAL_DRV_SPI_CS_GPIO             57
+#define HAL_PM_nOCTW_GPIO               BOARD_GATE_WARNING_GPIO
 
 //! \brief Defines the gpio for the enable gate of DRV device
 //!
-#define HAL_DRV_EN_GATE_GPIO            13
+#define HAL_DRV_EN_GATE_GPIO            BOARD_GATE_ENABLE_GPIO
 
 #define HAL_TZ_SIGNAL1            EPWM_TZ_SIGNAL_OSHT1
 #define HAL_TZ_SIGNAL2            EPWM_TZ_SIGNAL_OSHT2
@@ -128,19 +124,15 @@ extern "C" {
 
 //! \brief Defines the gpio for the nFAULT of Power Module device
 //!
-#define HAL_PM_nFAULT_GPIO            29
+#define HAL_PM_nFAULT_GPIO            BOARD_GATE_FAULT_GPIO
 
 //! \brief Defines the gpio for the OCTW of Power Module device
 //!
-#define HAL_PM_nOCTW_GPIO             29
-
-//! \brief Defines the gpio for the SPI_CS of DRV device
-//!
-#define HAL_DRV_SPI_CS_GPIO           27
+#define HAL_PM_nOCTW_GPIO             BOARD_GATE_WARNING_GPIO
 
 //! \brief Defines the gpio for the enable gate of DRV device
 //!
-#define HAL_DRV_EN_GATE_GPIO          28
+#define HAL_DRV_EN_GATE_GPIO          BOARD_GATE_ENABLE_GPIO
 
 #define HAL_TZ_SIGNAL1            EPWM_TZ_SIGNAL_OSHT1
 #define HAL_TZ_SIGNAL2            EPWM_TZ_SIGNAL_OSHT2
@@ -365,8 +357,8 @@ extern void HAL_enableADCIntsToTriggerCLA(HAL_Handle handle);
 extern void HAL_enableDebugInt(HAL_Handle handle);
 
 
-//! \brief      Enables the 8320 device
-//! \details    Provides the correct timing to enable the drv8320
+//! \brief      Enables the gate driver
+//! \details    Drives the board-level gate enable GPIO high.
 //! \param[in]  handle  The hardware abstraction layer (HAL) handle
 extern void HAL_enableDRV(HAL_Handle handle);
 
@@ -1223,25 +1215,6 @@ extern void HAL_setupPWMs(HAL_Handle handle,
                           const float32_t pwmPeriod_usec,
                           const uint16_t numPWMTicksPerISRTick);
 
-//! \brief     Writes data to the driver
-//! \param[in] handle         The hardware abstraction layer (HAL) handle
-//! \param[in] drv8320SPIVars  SPI variables
-void HAL_writeDRVData(HAL_Handle handle, DRV8320_SPIVars_t *drv8320SPIVars);
-
-
-//! \brief     Reads data from the driver
-//! \param[in] handle         The hardware abstraction layer (HAL) handle
-//! \param[in] drv8320SPIVars  SPI variables
-void HAL_readDRVData(HAL_Handle handle, DRV8320_SPIVars_t *drv8320SPIVars);
-
-
-//! \brief     Sets up the SPI interface for the driver
-//! \param[in] handle         The hardware abstraction layer (HAL) handle
-//! \param[in] drv8320SPIVars  SPI variables
-extern void
-HAL_setupDRVSPI(HAL_Handle handle, DRV8320_SPIVars_t *drv8320SPIVars);
-
-
 //! \brief     Sets the current scale factor in the hal
 //! \param[in] handle      The hardware abstraction layer (HAL) handle
 //! \param[in] current_sf  The current scale factor
@@ -1373,4 +1346,3 @@ static inline void HAL_setTrigger(HAL_Handle handle, HAL_PWMData_t *pPWMData,
 
 
 #endif // end of HAL_H definition
-

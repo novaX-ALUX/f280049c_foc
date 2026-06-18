@@ -43,6 +43,7 @@
 // the includes
 
 // modules
+#include "board.h"
 #include "userParams.h"
 
 //!
@@ -59,11 +60,10 @@ extern "C" {
 
 // **************************************************************************
 // the defines
-#define BOOSTX_to_J1_J2     0
-#define BOOSTX_to_J5_J6     1
+#define BOOSTX_to_J1_J2     BOARD_LAUNCHPAD_CONNECTOR_J1_J2
+#define BOOSTX_to_J5_J6     BOARD_LAUNCHPAD_CONNECTOR_J5_J6
 
-#define BOOST_to_LPD        BOOSTX_to_J1_J2
-//#define BOOST_to_LPD        BOOSTX_to_J5_J6
+#define BOOST_to_LPD        BOARD_LAUNCHPAD_CONNECTOR
 
 //! \brief Defines the nominal DC bus voltage, V
 //!
@@ -76,7 +76,7 @@ extern "C" {
 
 
 //! \brief Defines the maximum current at the AD converter
-//!        BOARD_BSXL8320RS_REVA, Gain=12
+//!        TODO: replace with esc6288_revA shunt and amplifier scaling.
 #define USER_ADC_FULL_SCALE_CURRENT_A         ((float32_t)(42.843))
 
 //! \brief Defines the analog voltage filter pole location, Hz
@@ -120,12 +120,12 @@ extern "C" {
 
 //! \brief Defines the number of current sensors
 //!
-#define USER_NUM_CURRENT_SENSORS                (3)
+#define USER_NUM_CURRENT_SENSORS                (BOARD_NUM_CURRENT_SENSORS)
 
 
 //! \brief Defines the number of voltage sensors
 //!
-#define USER_NUM_VOLTAGE_SENSORS                (3)
+#define USER_NUM_VOLTAGE_SENSORS                (BOARD_NUM_VOLTAGE_SENSORS)
 
 //! \brief Defines the system maximum input frequency, MHz
 //!
@@ -970,4 +970,3 @@ extern void cla_USER_setParams_priv(USER_Params *pUserParams);
 
 //@}  // ingroup
 #endif // end of USER_H definition
-

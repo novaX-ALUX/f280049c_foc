@@ -41,6 +41,7 @@
 // drivers
 #include "device.h"
 #include "driverlib.h"
+#include "gate_driver.h"
 #include "pwmdac.h"
 
 // modules
@@ -48,13 +49,6 @@
 
 #include "user.h"
 
-#ifdef DRV8301_SPI
-#include "drv8301.h"
-#endif
-
-#ifdef DRV8320_SPI
-#include "drv8320.h"
-#endif
 // platforms
 
 
@@ -113,10 +107,8 @@ typedef struct _HAL_Obj_
 
   bool          flagEnablePWM;     //<! the pwm enable flag
 
-#ifdef DRV8320_SPI
-  DRV8320_Handle drv8320Handle;   //!< the drv8320 interface handle
-  DRV8320_Obj    drv8320;         //!< the drv8320 interface object
-#endif
+  GATE_DRIVER_Handle gateDriverHandle; //!< the simple gate-driver interface handle
+  GATE_DRIVER_Obj    gateDriver;       //!< the simple gate-driver interface object
 
 #ifdef _EQEP_EN_
   uint32_t      qepHandle[2];       //!< the QEP handle
@@ -143,4 +135,3 @@ extern HAL_Obj hal;
 
 //@} // ingroup
 #endif // end of HAL_OBJ_H definition
-

@@ -185,7 +185,7 @@ void HAL_enableDRV(HAL_Handle handle)
 {
   HAL_Obj *obj = (HAL_Obj *)handle;
 
-  DRV8320_enable(obj->drv8320Handle);
+  GATE_DRIVER_enable(obj->gateDriverHandle);
 
   return;
 }  // end of HAL_enableDRV() function
@@ -288,8 +288,9 @@ HAL_Handle HAL_init(void *pMemory,const size_t numBytes)
     obj->pwmDACHandle[2] = EPWM8_BASE;
     obj->pwmDACHandle[3] = EPWM8_BASE;
 
-    // initialize drv8320 interface
-    obj->drv8320Handle = DRV8320_init(&obj->drv8320);
+    // initialize simple gate-driver interface
+    obj->gateDriverHandle = GATE_DRIVER_init(&obj->gateDriver,
+                                             sizeof(obj->gateDriver));
 
 #ifdef _EQEP_EN_
     // initialize QEP driver
@@ -414,13 +415,7 @@ void HAL_setParams(HAL_Handle handle)
     // setup the sci
     HAL_setupSCIA(handle);
 
-    // setup the spiB for DRV8320_Kit_RevD
-    HAL_setupSPIA(handle);
-
-    // setup the spiB for DRV8301_Kit_RevD
-    HAL_setupSPIB(handle);
-
-    // setup the drv8320 interface
+    // setup the board-level gate enable interface
     HAL_setupGate(handle);
 
 #ifdef _EQEP_EN_
@@ -738,34 +733,6 @@ void HAL_setupDACs(HAL_Handle handle)
 } // end of HAL_setupDACs() function
 
 
-void HAL_writeDRVData(HAL_Handle handle, DRV8320_SPIVars_t *drv8320SPIVars)
-{
-  HAL_Obj  *obj = (HAL_Obj *)handle;
-
-  DRV8320_writeData(obj->drv8320Handle,drv8320SPIVars);
-
-  return;
-}  // end of HAL_writeDRVData() function
-
-
-void HAL_readDRVData(HAL_Handle handle, DRV8320_SPIVars_t *drv8320SPIVars)
-{
-  HAL_Obj  *obj = (HAL_Obj *)handle;
-
-  DRV8320_readData(obj->drv8320Handle,drv8320SPIVars);
-
-  return;
-}  // end of HAL_readDRVData() function
-
-void HAL_setupDRVSPI(HAL_Handle handle, DRV8320_SPIVars_t *drv8320SPIVars)
-{
-  HAL_Obj  *obj = (HAL_Obj *)handle;
-
-  DRV8320_setupSPI(obj->drv8320Handle, drv8320SPIVars);
-
-  return;
-}  // end of HAL_setupDRVSPI() function
-
 void HAL_setupFaults(HAL_Handle handle)
 {
     HAL_Obj *obj = (HAL_Obj *)handle;
@@ -867,17 +834,7 @@ void HAL_setupGate(HAL_Handle handle)
 {
     HAL_Obj *obj = (HAL_Obj *)handle;
 
-#if (BOOST_to_LPD == BOOSTX_to_J1_J2)
-    DRV8320_setSPIHandle(obj->drv8320Handle, obj->spiHandle[0]);
-    DRV8320_setGPIOCSNumber(obj->drv8320Handle, HAL_DRV_SPI_CS_GPIO);
-    DRV8320_setGPIONumber(obj->drv8320Handle, HAL_DRV_EN_GATE_GPIO);
-#endif
-
-#if (BOOST_to_LPD == BOOSTX_to_J5_J6)
-    DRV8320_setSPIHandle(obj->drv8320Handle, obj->spiHandle[1]);
-    DRV8320_setGPIOCSNumber(obj->drv8320Handle, HAL_DRV_SPI_CS_GPIO);
-    DRV8320_setGPIONumber(obj->drv8320Handle, HAL_DRV_EN_GATE_GPIO);
-#endif
+    GATE_DRIVER_setEnableGPIO(obj->gateDriverHandle, HAL_DRV_EN_GATE_GPIO);
 
     return;
 } // HAL_setupGate() function
@@ -963,11 +920,14 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(12, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(12, GPIO_PIN_TYPE_STD);
 
-    // GPIO13->J1/J2-DRV_EN
-    GPIO_setMasterCore(13, GPIO_CORE_CPU1);
-    GPIO_writePin(13, 1);
-    GPIO_setDirectionMode(13, GPIO_DIR_MODE_OUT);
-    GPIO_setPadConfig(13, GPIO_PIN_TYPE_PULLUP);
+    // GPIO13->gate enable (active-high). Keep disabled until HAL_enableDRV().
+    // STD (no internal pull-up): an internal PU would bias an active-high EN toward
+    // "enabled" during reset/pre-config. Rely on an external pull-down for fail-safe off.
+    GPIO_setMasterCore(HAL_DRV_EN_GATE_GPIO, GPIO_CORE_CPU1);
+    GPIO_setPinConfig(GPIO_13_GPIO13);
+    GPIO_writePin(HAL_DRV_EN_GATE_GPIO, 0);
+    GPIO_setDirectionMode(HAL_DRV_EN_GATE_GPIO, GPIO_DIR_MODE_OUT);
+    GPIO_setPadConfig(HAL_DRV_EN_GATE_GPIO, GPIO_PIN_TYPE_STD);
 
     // EPWM8A->PWM-DAC1
     GPIO_setMasterCore(14, GPIO_CORE_CPU1);
@@ -1044,10 +1004,14 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(27, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(27, GPIO_PIN_TYPE_STD);
 
-    // GPIO28->DRV-EN for J5/J6 connection
+    // GPIO28: leftover SDK template DRV-EN (DRV8320 J5/J6). NOT this board's enable
+    // (esc6288_revA EN = GPIO13, see board.h). The original template drove it HIGH at
+    // init, which would assert a stray enable-like net on bring-up. Drive LOW (safe-off)
+    // until the full GPIO map is migrated into board.h per PORT_TODO #5.
+    // TODO: confirm GPIO28's actual net on the esc6288_revA schematic; drop this block if unused.
     GPIO_setMasterCore(28, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_28_GPIO28);
-    GPIO_writePin(28, 1);
+    GPIO_writePin(28, 0);
     GPIO_setDirectionMode(28, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(28, GPIO_PIN_TYPE_STD);
 

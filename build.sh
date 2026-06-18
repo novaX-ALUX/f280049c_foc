@@ -7,10 +7,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 BOARD="${BOARD:-esc6288_revA}"
 LAB="${LAB:-is01_intro_hal}"
-MOTOR="${MOTOR:-}"     # 预留: 后续从 motors/ 注入电机参数(当前电机参数仍在 board 的 user_m1.h)
+MOTOR="${MOTOR:-motor_template}"     # 预留: 后续从 motors/ 注入电机参数
 
 CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS}"
-MCSDK="$HERE/C2000Ware_MotorControl_SDK_6_00_00_00"
+MCSDK="${MCSDK_ROOT:-$HERE/C2000Ware_MotorControl_SDK_6_00_00_00}"
 DEV="$MCSDK/c2000ware/device_support/f28004x"
 DLIB="$MCSDK/c2000ware/driverlib/f28004x/driverlib"
 BD="$HERE/boards/$BOARD"
@@ -18,9 +18,12 @@ CL="$CGT/bin/cl2000"
 OUT="$HERE/build/${BOARD}_${LAB}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
 
 [ -d "$BD" ] || { echo "未知板: $BOARD (见 boards/)"; exit 1; }
+[ -d "$MCSDK" ] || { echo "找不到 MCSDK: $MCSDK (设置 MCSDK_ROOT 或放在工程内)"; exit 1; }
+[ -x "$CL" ] || { echo "找不到 cl2000: $CL (设置 CGT)"; exit 1; }
 
 CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
-DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=_BOOSTXL_8320RS_REVA_ --define=DRV8320_SPI --define=DATALOG_ENABLE --define=CPUTIME_ENABLE"
+# 选板事实来源 = config/build_config.h 的 BUILD_BOARD_ID(board.h 自检);不再用命令行 -D 选板。
+DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE"
 INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/control/pi/include"
   -I"$MCSDK/libraries/control/vsf/include" -I"$MCSDK/libraries/control/fwc/include" -I"$MCSDK/libraries/control/mtpa/include"
   -I"$MCSDK/libraries/control/vs_freq/include" -I"$MCSDK/libraries/filter/filter_fo/include" -I"$MCSDK/libraries/filter/filter_so/include"
@@ -29,9 +32,11 @@ INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/c
   -I"$MCSDK/libraries/transforms/svgen/include" -I"$MCSDK/libraries/utilities/angle_gen/include" -I"$MCSDK/libraries/utilities/cpu_time/include"
   -I"$MCSDK/libraries/utilities/datalog/include" -I"$MCSDK/libraries/utilities/diagnostic/include" -I"$MCSDK/libraries/utilities/traj/include"
   -I"$MCSDK/libraries/utilities/types/include" -I"$MCSDK/solutions/common/sensorless_foc/include/"
-  -I"$BD/drivers/include" -I"$DLIB" -I"$DEV/common/include/" -I"$DEV/headers/include/" -I"$CGT/include" )
+  -I"$HERE/config" -I"$HERE/motors" -I"$BD/drivers/include" -I"$DLIB" -I"$DEV/common/include/" -I"$DEV/headers/include/" -I"$CGT/include" )
 
 # FOC 库源(SDK) + 板级 HAL(boards/$BOARD) + lab 主程序(SDK common)
+# 注:当前为 "lab-centric" —— 主程序固定取自 SDK 的 sensorless_foc/${LAB}.c(适配 is01~is13 bring-up)。
+#     待自有应用成形后,改为可切换:SDK lab 用上面路径,产品 app 取自 src/app/${LAB}.c。
 C_SRCS=(
   "$DEV/headers/source/f28004x_globalvariabledefs.c"
   "$MCSDK/libraries/observers/est/source/user.c"
@@ -47,7 +52,7 @@ C_SRCS=(
   "$MCSDK/libraries/utilities/traj/source/traj.c"
   "$MCSDK/libraries/utilities/datalog/source/datalog.c"
   "$MCSDK/libraries/utilities/cpu_time/source/cpu_time.c"
-  "$BD/drivers/source/drv8320.c"
+  "$BD/drivers/source/gate_driver.c"
   "$BD/drivers/source/hal.c"
   "$MCSDK/solutions/common/sensorless_foc/source/${LAB}.c"
 )
@@ -59,7 +64,8 @@ LIBS=(
 )
 LNK=( "$BD/cmd/f28004x_ram_cpu_is_eabi.cmd" "$DEV/headers/cmd/f28004x_headers_nonbios.cmd" )
 
-echo ">>> BOARD=$BOARD  LAB=$LAB  CGT=$($CL --compiler_revision)"
+echo ">>> BOARD=$BOARD  MOTOR=$MOTOR  LAB=$LAB  MCSDK=$MCSDK"
+echo ">>> CGT=$($CL --compiler_revision)"
 for s in "${C_SRCS[@]}"; do echo "  CC $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done
 for s in "${ASM_SRCS[@]}"; do echo "  AS $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done
 echo ">>> Linking ${LAB}.out ..."
