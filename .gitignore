@@ -1,0 +1,5 @@
+build/
+*.obj
+*.out
+*.map
+*.lst
