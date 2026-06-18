@@ -1,38 +1,39 @@
-// motor_template.h —— 电机 FOC profile 模板(变化轴 2)
+// motor_template.h -- FOC motor profile template (axis of change 2)
 //
-// 复制本文件为 motors/<型号>.h, 填入该电机参数。宏名与 SDK 6.0 user.h 的
-// USER_MOTOR_* 对齐, 将来可直接被 board user.h #include 做 drop-in。
+// Copy this file to motors/<model>.h and fill in the motor parameters. Macro names
+// align with USER_MOTOR_* in SDK 6.0 user.h, allowing board user.h to #include it
+// as a direct drop-in replacement.
 //
-// 字段两类:
-//   [输入] 上电/辨识前必须正确给出(几何极对数 + 限流 + 辨识种子)。
-//   [输出] 由 is05_motor_id 辨识后回填(Rs / Ls / 磁链)——模板里留空(注释掉)。
+// Two field categories:
+//   [Input]  Must be set correctly before power-on / identification (pole-pair count + current limits + identification seeds).
+//   [Output] Back-filled by is05_motor_id after identification (Rs / Ls / flux linkage) -- leave blank (commented out) in the template.
 #ifndef MOTOR_TEMPLATE_H
 #define MOTOR_TEMPLATE_H
 
 #define MOTOR_NAME                        "TEMPLATE"
-#define MOTOR_KV_RPM_PER_V                (0)        // [输入] 铭牌 KV(参考/校核用)
+#define MOTOR_KV_RPM_PER_V                (0)        // [Input] Nameplate KV (for reference / cross-check)
 
 #define USER_MOTOR_TYPE                   MOTOR_TYPE_PM
-#define USER_MOTOR_NUM_POLE_PAIRS         (0)        // [输入] 极对数(几何, 必填; is05 不辨识此项, 错则全错)
-#define USER_MOTOR_MAGNETIZING_CURRENT_A  (NULL)     // PMSM 固定 NULL
+#define USER_MOTOR_NUM_POLE_PAIRS         (0)        // [Input] Pole-pair count (geometric; required -- is05 does not identify this; if wrong, everything is wrong)
+#define USER_MOTOR_MAGNETIZING_CURRENT_A  (NULL)     // Fixed NULL for PMSM
 
-#define USER_MOTOR_Rr_Ohm                 (NULL)     // PMSM 无转子电阻
-// [输出/种子] Rs/Ls/磁链 —— bench 安全种子, is05_motor_id 辨识后回填覆盖:
-#define USER_MOTOR_Rs_Ohm                 (0.02)     // 种子, is05 覆盖
-#define USER_MOTOR_Ls_d_H                 (10.0e-6)  // 种子, is05 覆盖
-#define USER_MOTOR_Ls_q_H                 (10.0e-6)  // 种子, is05 覆盖
-#define USER_MOTOR_RATED_FLUX_VpHz        (0.01)     // 种子, is05 覆盖
+#define USER_MOTOR_Rr_Ohm                 (NULL)     // No rotor resistance for PMSM
+// [Output/seed] Rs/Ls/flux linkage -- safe bench seeds; overwritten after is05_motor_id identification:
+#define USER_MOTOR_Rs_Ohm                 (0.02)     // seed; overwritten by is05
+#define USER_MOTOR_Ls_d_H                 (10.0e-6)  // seed; overwritten by is05
+#define USER_MOTOR_Ls_q_H                 (10.0e-6)  // seed; overwritten by is05
+#define USER_MOTOR_RATED_FLUX_VpHz        (0.01)     // seed; overwritten by is05
 
-// [输入] 辨识种子 / 限流(上电前按电机+电源调; 台架先保守小电流):
-#define USER_MOTOR_RES_EST_CURRENT_A      (1.0)      // 电阻辨识电流
-#define USER_MOTOR_IND_EST_CURRENT_A      (-1.0)     // 电感辨识电流(负)
-#define USER_MOTOR_MAX_CURRENT_A          (5.0)      // 最大电流(台架/电源限幅内)
+// [Input] Identification seeds / current limits (tune to motor + supply before power-on; start conservatively low on the bench):
+#define USER_MOTOR_RES_EST_CURRENT_A      (1.0)      // Resistance identification current
+#define USER_MOTOR_IND_EST_CURRENT_A      (-1.0)     // Inductance identification current (negative)
+#define USER_MOTOR_MAX_CURRENT_A          (5.0)      // Maximum current (within bench / supply limit)
 #define USER_MOTOR_FLUX_EXC_FREQ_Hz       (20.0)
 
-#define USER_MOTOR_NUM_ENC_SLOTS          (1000)      // 无编码器占位(FAST 无感不用此值)
-#define USER_MOTOR_INERTIA_Kgm2           (1.0e-5)    // 占位; 影响速度环前馈, is07 调环时调
+#define USER_MOTOR_NUM_ENC_SLOTS          (1000)      // Placeholder for encoderless operation (FAST sensorless does not use this value)
+#define USER_MOTOR_INERTIA_Kgm2           (1.0e-5)    // Placeholder; affects speed loop feed-forward -- tune during is07 loop tuning
 
-// [输入] 运行范围(占位/台架值, 按电机+电源调; 影响 FAST 频率范围与限幅):
+// [Input] Operating range (placeholder / bench values; tune to motor + supply; affects FAST frequency range and limiting):
 #define USER_MOTOR_RATED_VOLTAGE_V        (24.0)
 #define USER_MOTOR_RATED_SPEED_KRPM       (5.0)
 #define USER_MOTOR_FREQ_MIN_HZ            (5.0)

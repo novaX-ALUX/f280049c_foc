@@ -1,77 +1,73 @@
-# launchxl_drv8305evm —— LAUNCHXL-F280049C + BOOSTXL-DRV8305EVM 移植清单
+# launchxl_drv8305evm — LAUNCHXL-F280049C + BOOSTXL-DRV8305EVM Porting Checklist
 
-自制板 `esc6288_revA` 制作期间的**解耦验证平台**:用 TI 官方套件先跑通固件 + 电机。
-控制核心(FOC/FAST/电机辨识/调环)与板无关、100% 复用;本目录只解决"板层"。
+**Hardware-decoupled validation platform** while the custom board `esc6288_revA` is being fabricated: use the TI official kit to validate firmware and motor first.
+The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic and 100% reusable; this directory only addresses the board layer.
 
-## 现成可复用资产(已核实)
-- 引脚映射(SysConfig): `c2000ware/boards/.meta/LAUNCHXL_F280049C.syscfg.json`
+## Reusable Assets (verified)
+- Pin mapping (SysConfig): `c2000ware/boards/.meta/LAUNCHXL_F280049C.syscfg.json`
   + `.../boosterpack_json_files/BOOSTXL-DRV8305EVM.syscfg.json`
-- DRV8305 SPI 寄存器图: `../../esc_drv8300_foc/motorware_1_01_00_18/sw/drivers/drvic/drv8305/src/32b/f28x/f2806x/drv8305.h`
-- DRV8305EVM 的 HAL 参考: `../../esc_drv8300_foc/.../hal/boards/boostxldrv8305_revA`(老 f2806x, 仅参考时序/寄存器序列)
-- PWM 半边几乎现成: 本板三相 = EPWM6/5/3 = 现有 boostxl_drv8320rs HAL 的 "J1/J2 connection" 路径。
+- DRV8305 SPI register map: `../../esc_drv8300_foc/motorware_1_01_00_18/sw/drivers/drvic/drv8305/src/32b/f28x/f2806x/drv8305.h`
+- DRV8305EVM HAL reference: `../../esc_drv8300_foc/.../hal/boards/boostxldrv8305_revA` (legacy f2806x; reference timing/register sequence only)
+- PWM half-bridge mostly ready: this board's three phases = EPWM6/5/3 = the existing boostxl_drv8320rs HAL "J1/J2 connection" path.
 
-## 引脚映射(Site 1 / BoosterPack1 J1-J4) —— 已定死, 见 board.h
-| 功能 | 排针 | GPIO/ADC | 外设 |
+## Pin Mapping (Site 1 / BoosterPack1 J1-J4) — locked; see board.h
+| Function | Header | GPIO/ADC | Peripheral |
 |------|:--:|:--:|------|
 | U H/L | 40/39 | GPIO10/11 | EPWM6A/6B |
 | V H/L | 38/37 | GPIO8/9   | EPWM5A/5B |
 | W H/L | 36/35 | GPIO4/5   | EPWM3A/3B |
-| Ia/Ib/Ic | 27/28/29 | ADCIN B2/C0/A9 | CMPSS 3/1/6(权威见阶段2 表;非 5/3/1) |
+| Ia/Ib/Ic | 27/28/29 | ADCIN B2/C0/A9 | CMPSS 3/1/6 (authoritative; see Phase 2 table — not 5/3/1) |
 | Va/Vb/Vc | 23/24/25 | ADCIN A5/B0/C2 | — |
 | Vbus | 26 | ADCIN B1 | — |
 | SPI CLK/STE/SIMO/SOMI | 7/19/15/14 | GPIO56/57/16/17 | SPIA |
 | EN_GATE | 13 | GPIO39 (out) | active-high |
 | nFAULT | 3 | GPIO13 (in) | active-low |
 | WAKE | 12 | GPIO23 | — |
-| PWRGD | 16 | XRSn ⚠️ | 不可用 GPIO, 改读 SPI 状态 |
+| PWRGD | 16 | XRSn ⚠️ | not usable as GPIO; read SPI status instead |
 
-## 定标常量(BOOSTXL-DRV8305EVM, CSA 增益默认 10V/V + 7mΩ 分流)
-- `USER_ADC_FULL_SCALE_CURRENT_A = 47.14`  ← TI 官方值, 旧项目核实
-- `USER_ADC_FULL_SCALE_VOLTAGE_V = 44.30`  ← ⚠️ 待对 EVM 分压电阻确认(VSENSE 43.2k/4.99k 量级)
-- 偏置: 电流 0.5*47.14 ≈ 23.57A; Vbus 偏置见 user.h
+## Scaling Constants (BOOSTXL-DRV8305EVM, CSA gain default 10 V/V + 7 mΩ shunt)
+- `USER_ADC_FULL_SCALE_CURRENT_A = 47.14`  ← TI official value, confirmed against legacy project
+- `USER_ADC_FULL_SCALE_VOLTAGE_V = 44.30`  ← ⚠️ pending confirmation against EVM voltage divider resistors (VSENSE ~43.2 k/4.99 k)
+- Offsets: current 0.5 × 47.14 ≈ 23.57 A; Vbus offset see user.h
 
-## 阶段任务
-- [x] **阶段1 骨架**: 目录 / board.h(引脚) / cmd 链接器复用 / build_config.h 加板 ID(=2)
-- [x] **阶段2 HAL 适配** (drivers/{include,source}): 基于 boostxl_drv8320rs J1/J2 路径改
-  - [x] PWM: EPWM6/5/3 —— 天然吻合 J1/J2 路径, 无需改
-  - [x] 电流 ADC: SOC0 通道改 B2/C0/A9(`HAL_setupADCs`); getCurrent 读取索引重排成相序 A,B,C(`hal.h`)
-  - [x] 电压 ADC: A5/B0/C2/B1 —— 天然吻合, 无需改
-  - [x] 栅驱 GPIO: EN_GATE=GPIO39(out,低), nFAULT=GPIO13(in,上拉); GPIO40 旧 nFAULT 标记为未用; GPIO23 标为 WAKE
-  - [x] 定标: 44.30V / 47.14A(`user.h`)
-  - [x] `BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh` 编译链接通过
-  - [x] **PGA 前端**: base HAL 在 `HAL_setupPGAs` 使能 PGA1/3/5(增益12)——那是 DRV8320RS 的
-    "片内 PGA"前端。DRV8305EVM 用 DRV8305 自带 CSA 直连 ADC 引脚, 且 **B2=PGA3_OF**, PGA3 使能会
-    抢驱 B2 → 电流读错。已改为 **PGA_disable**(本板不走片内 PGA)。
-  - ⚠️ **CMPSS 过流(已用数据手册核对, 高电流 is05+ 前接好)**: 继承的实例 5/3/1 + value=4 对本板
-    **完全错误**(那是 PGA 通路)。F28004x 数据手册 Table 5-1 权威映射(直连引脚):
-    | 相 | 引脚 | CMPSS | HP 索引(mux value) |
+## Phase Tasks
+- [x] **Phase 1 Skeleton**: directory / board.h (pins) / cmd linker reuse / board ID added to build_config.h (=2)
+- [x] **Phase 2 HAL Adaptation** (drivers/{include,source}): modified from boostxl_drv8320rs J1/J2 path
+  - [x] PWM: EPWM6/5/3 — naturally matches J1/J2 path, no changes needed
+  - [x] Current ADC: SOC0 channels changed to B2/C0/A9 (`HAL_setupADCs`); getCurrent read indices reordered for phase sequence A, B, C (`hal.h`)
+  - [x] Voltage ADC: A5/B0/C2/B1 — naturally matches, no changes needed
+  - [x] Gate driver GPIO: EN_GATE=GPIO39 (out, low), nFAULT=GPIO13 (in, pull-up); GPIO40 former nFAULT marked unused; GPIO23 marked as WAKE
+  - [x] Scaling: 44.30 V / 47.14 A (`user.h`)
+  - [x] `BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh` compiles and links cleanly
+  - [x] **PGA front-end**: base HAL enables PGA1/3/5 (gain 12) in `HAL_setupPGAs` — that is the DRV8320RS
+    on-chip PGA front-end. The DRV8305EVM uses the DRV8305 integrated CSA directly connected to ADC pins, and **B2=PGA3_OF**: enabling PGA3 would drive B2 → incorrect current readings. Changed to **PGA_disable** (on-chip PGA not used on this board).
+  - ⚠️ **CMPSS overcurrent (verified against datasheet; must be wired before high-current is05+)**: the inherited instance 5/3/1 + value=4 is **completely wrong** for this board (that is the PGA path). Authoritative mapping from F28004x datasheet Table 5-1 (direct-connect pins):
+    | Phase | Pin | CMPSS | HP index (mux value) |
     |----|:--:|:--:|:--:|
     | Ia | B2 | CMPSS3 | HP0 (value 0) |
     | Ib | C0 | CMPSS1 | HP1 (value 1) |
     | Ic | A9 | CMPSS6 | HP3 (value 3) |
-    需同步改: `cmpssHandle[]`→{CMPSS3,CMPSS1,CMPSS6}; `ASysCtl_selectCMPHPMux`→对应 HP value;
-    ePWM X-BAR TRIP 复用→ MUX04(CMPSS3)/MUX00(CMPSS1)/MUX10(CMPSS6)。
-    **建议**: 这套 CMPSS/X-BAR 用 TI SysConfig(CCS 导入时, README TODO#1)对 DRV8305EVM 自动生成最稳;
-    手工接易错且 is01/02/03 不依赖过流, 故暂留此精确清单, 不手工硬接。
-  - 备注: WithoutOffsets 读函数对本 lab 是死代码(is01/is02 只调 WithOffsets), 未改。
-    J5/J6 EPWM1/2/4 引脚仍被配置但 booster 不接, 无害。
-- [x] **阶段3 DRV8305 SPI 驱动** (drivers/source/drv8305.c + include/drv8305.h)
-  - [x] 寄存器图/枚举从 MotorWare 移植到 driverlib 风格(16-bit 帧, 地址枚举, CSA 增益)
-  - [x] `DRV8305_writeSpi/readSpi`(driverlib `SPI_*BlockingFIFO`)+ `DRV8305_configure`
-        (清故障 + CSA 增益 10V/V → 配 47.14A; 栅驱/死区留 EVM 默认)
-  - [x] 接入 HAL 函数: `HAL_setupGate`→`HAL_setupSPIA`(SPI 之前未被调用, 已接);
-        `HAL_enableDRV`→ EN_GATE 唤醒 + ~1ms 延时 + `DRV8305_configure`
-  - [x] `build.sh` 按 BOARD 加 `drv8305.c` + `--define=DRV8305_SPI`; 两板均编译通过
-  - ⚠️ **运行入口未接(待 bring-up)**: stock SDK lab `is01_intro_hal.c` 只在 `#ifdef DRV8320_SPI`
-        里调 `HAL_enableDRV()`, 我们定义的是 `DRV8305_SPI` → 默认 is01 路径**不会执行**
-        `DRV8305_configure()`(EN 保持低, 硬件未到时安全)。即:`HAL_setupSPIA` 随 HAL 初始化跑,
-        但 DRV8305 寄存器配置/使能还没有运行入口。bring-up 时需加 DRV8305 专用 lab hook 或本地
-        lab wrapper, 在确认时序后显式调 `HAL_enableDRV()`。
-  - ⚠️ **待硬件确认**: SPI 通信(读状态/ID)、6-PWM 模式(Control 7)、VDS 过流阈值/栅驱电流/死区
-        按实测电机调; SPI 极性已按 MotorWare(POL0PHA0)设, 上板抓波形复核。
-- [ ] **阶段4 上电 bring-up**: is02 标定 → is03 自检(低压/小电流先) → is05 辨识 → is06/07 调环
+    Must also update: `cmpssHandle[]`→{CMPSS3,CMPSS1,CMPSS6}; `ASysCtl_selectCMPHPMux`→corresponding HP values;
+    ePWM X-BAR TRIP mux→ MUX04(CMPSS3)/MUX00(CMPSS1)/MUX10(CMPSS6).
+    **Recommendation**: generate this CMPSS/X-BAR configuration automatically via TI SysConfig (when importing into CCS; see README TODO #1); manual wiring is error-prone, and is01/02/03 do not depend on overcurrent protection, so this precise checklist is left here rather than hard-coded manually.
+  - Note: the WithoutOffsets read function is dead code for this lab (is01/is02 only call WithOffsets), left as-is.
+    J5/J6 EPWM1/2/4 pins are still configured but the boosterpack is not connected; harmless.
+- [x] **Phase 3 DRV8305 SPI Driver** (drivers/source/drv8305.c + include/drv8305.h)
+  - [x] Register map/enums ported from MotorWare to driverlib style (16-bit frame, address enum, CSA gain)
+  - [x] `DRV8305_writeSpi/readSpi` (driverlib `SPI_*BlockingFIFO`) + `DRV8305_configure`
+        (clear faults + CSA gain 10 V/V → configured for 47.14 A; gate drive/dead-band left at EVM defaults)
+  - [x] Integrated into HAL functions: `HAL_setupGate`→`HAL_setupSPIA` (SPI was previously uncalled; now connected);
+        `HAL_enableDRV`→ EN_GATE wake + ~1 ms delay + `DRV8305_configure`
+  - [x] `build.sh` adds `drv8305.c` + `--define=DRV8305_SPI` based on BOARD; both boards compile cleanly
+  - ⚠️ **Runtime entry point not yet connected (pending bring-up)**: stock SDK lab `is01_intro_hal.c` only calls
+        `HAL_enableDRV()` inside `#ifdef DRV8320_SPI`; we define `DRV8305_SPI` → the default is01 path **does not execute**
+        `DRV8305_configure()` (EN stays low; safe until hardware is ready). In other words: `HAL_setupSPIA` runs with HAL initialization,
+        but the DRV8305 register configuration/enable has no runtime entry point yet. During bring-up, add a DRV8305-specific lab hook or local
+        lab wrapper that explicitly calls `HAL_enableDRV()` after confirming the timing sequence.
+  - ⚠️ **Pending hardware confirmation**: SPI communication (read status/ID), 6-PWM mode (Control 7), VDS overcurrent threshold/gate drive current/dead-band to be tuned per motor from measurement; SPI polarity set per MotorWare (POL0PHA0), verify with oscilloscope on board.
+- [ ] **Phase 4 Power-on Bring-up**: is02 calibration → is03 self-test (low voltage / low current first) → is05 motor identification → is06/07 loop tuning
 
-## 待你提供(阶段4 前)
-- 验证电机型号/参数: 极对数、额定电流/电压、Rs/Ls(可由 is05 辨识)
-- 直流电源电压(建议先 12–24V 低压试)与限流值
-- 实际插接位确认(默认 Site 1 / J1-J4;若插 J5-J8 则引脚映射换一套)
+## Information Needed (before Phase 4)
+- Motor model and parameters: pole pairs, rated current/voltage, Rs/Ls (can be identified by is05)
+- DC supply voltage (recommend starting at 12–24 V low voltage) and current limit
+- Connector site confirmation (default Site 1 / J1-J4; if connected to J5-J8, pin mapping changes)

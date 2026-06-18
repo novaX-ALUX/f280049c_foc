@@ -415,8 +415,8 @@ extern "C" {
 
 #include "motor_select.h"
 
-// 选电机: 默认 motor_template 用下方 SDK 示例电机链(Teknic); 选真实电机(BUILD_MOTOR_ID!=TEMPLATE)
-// 时整条示例链跳过, 由 motors/<型号>.h(经 motor_select.h 在上方 #include)提供全部 USER_MOTOR_*。
+// Motor selection: default motor_template uses the SDK example motor chain (Teknic) below; selecting a real motor
+// (BUILD_MOTOR_ID != TEMPLATE) skips the whole example chain and takes all USER_MOTOR_* from motors/<model>.h (via motor_select.h above).
 #if (BUILD_MOTOR_ID == BUILD_MOTOR_ID_TEMPLATE)
 //#define USER_MOTOR Estun_EMJ_04APB22_A
 //#define USER_MOTOR Estun_EMJ_04APB22_B
@@ -871,8 +871,8 @@ extern "C" {
 #error No motor type specified
 #endif
 
-#else  // BUILD_MOTOR_ID != TEMPLATE: 用 motors/ profile, 跳过 SDK 示例电机链
-#define USER_MOTOR  (0)   // 满足下方 "#ifndef USER_MOTOR" 守卫; 不参与示例链匹配
+#else  // BUILD_MOTOR_ID != TEMPLATE: use the motors/ profile, skip the SDK example motor chain
+#define USER_MOTOR  (0)   // satisfies the "#ifndef USER_MOTOR" guard below; matches no example in the chain
 #endif // BUILD_MOTOR_ID == BUILD_MOTOR_ID_TEMPLATE
 
 

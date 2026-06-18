@@ -1,116 +1,116 @@
-# f280049c_foc —— 全新 ESC 工程（TMS320F280049C）
+# f280049c_foc — New ESC Project (TMS320F280049C)
 
-基于 **C2000Ware MotorControl SDK 6.00.00.00** 的现代 FOC 架构（driverlib + EABI）。
-取代旧的 `../esc_drv8300_foc`（F28027F / MotorWare，停更）和中途的 `../motorware_clean`（F28062F，已弃用）。
+Modern FOC architecture based on **C2000Ware MotorControl SDK 6.00.00.00** (driverlib + EABI).
+Replaces the legacy `../esc_drv8300_foc` (F28027F / MotorWare, end-of-life) and the interim `../motorware_clean` (F28062F, abandoned).
 
-## 目标平台
-- MCU: **TMS320F280049C**（F28004x，100 MHz，FPU + **TMU**，256KB Flash / 100KB RAM）
-- 软件栈: **C2000Ware MotorControl SDK 6.0** + driverlib（**不再是 MotorWare**）
-- 硬件板卡: 最终板 `esc6288_revA` 使用 FD6288/simple gate driver；验证板 `launchxl_drv8305evm` 使用 DRV8305（详见“板卡”表）
-- 控制: InstaSPIN **FAST 无感**（F280049C 带 FAST ROM）+ 后续嫁接 **MT6701 有感**
+## Target Platform
+- MCU: **TMS320F280049C** (F28004x, 100 MHz, FPU + **TMU**, 256 KB Flash / 100 KB RAM)
+- Software stack: **C2000Ware MotorControl SDK 6.0** + driverlib (**not MotorWare**)
+- Hardware boards: production board `esc6288_revA` uses FD6288/simple gate driver; validation board `launchxl_drv8305evm` uses DRV8305 (see Boards table)
+- Control: InstaSPIN **FAST sensorless** (F280049C has FAST ROM) + future **MT6701 sensored** integration
 
-## 选定底座
-SDK 参考底座 `solutions/boostxl_drv8320rs/f28004x`（明确目标 = F280049C），本工程只保留需要移植的 HAL/lab 结构。
-递进式 bring-up 实验阶梯（类比旧 MotorWare 的 proj_lab01..10）：
+## Selected Reference Base
+SDK reference base `solutions/boostxl_drv8320rs/f28004x` (explicit target = F280049C); only the HAL/lab structure needed for porting is retained.
+Incremental bring-up lab ladder (analogous to legacy MotorWare proj_lab01..10):
 ```
-is01_intro_hal      HAL/时钟/PWM 入门  ← 当前验证点
-is02_offset_gain_cal  ADC 偏置/增益标定
-is03_hardware_test    硬件自检
-is04_signal_chain_test 信号链
-is05_motor_id         电机辨识
-is06_torque_control   转矩环
-is07_speed_control    速度环
-... is13_fwc_mtpa      弱磁/MTPA
+is01_intro_hal          HAL / clock / PWM bringup  ← current validation point
+is02_offset_gain_cal    ADC offset/gain calibration
+is03_hardware_test      hardware self-test
+is04_signal_chain_test  signal chain test
+is05_motor_id           motor identification
+is06_torque_control     torque loop
+is07_speed_control      speed loop
+... is13_fwc_mtpa       field weakening / MTPA
 ```
-> 单电机 lab(is01–is10, is12, is13)两块板均命令行链接通过、0 告警。
-> **is11_dual_motor 不适用**(双电机,需已移除的 `user_m1/m2/dm`+`hal_dm` 脚手架);
-> `build.sh` 选到它会直接报错退出。
+> Single-motor labs (is01–is10, is12, is13) link cleanly on both boards with 0 warnings.
+> **is11_dual_motor does not apply** (dual-motor; requires the removed `user_m1/m2/dm` + `hal_dm` scaffolding);
+> `build.sh` exits with an error if it is selected.
 >
-> 各 lab 所需控制模块源(`vs_freq/vsf/fwc/mtpa`)已并入 `build.sh`;is12 自动加 `_VSF_EN_` 宏。
+> Control module sources needed by each lab (`vs_freq/vsf/fwc/mtpa`) are already included in `build.sh`; is12 automatically adds the `_VSF_EN_` macro.
 
-每个实验有 EABI 和 COFF 两版 —— **本工程用 EABI**。
+Each lab has both EABI and COFF variants — **this project uses EABI**.
 
-## 板卡（两块并存，正交于控制核心）
-| 板 (`BOARD=`) | 角色 | 栅极驱动 | 电流采样 | 状态 |
+## Boards (two boards, orthogonal to the control core)
+| Board (`BOARD=`) | Role | Gate driver | Current sensing | Status |
 |------|------|---------|---------|------|
-| `esc6288_revA` | 最终 ESC（自制，制作中） | FD6288 / simple（EN GPIO，无 SPI） | 外部分流 + 运放 | is01 编译通过；板级 HAL 待按原理图迁入 `board.h` |
-| `launchxl_drv8305evm` | **验证平台**（TI 官方 LaunchPad + BoosterPack） | DRV8305（SPI 可编程，内置 CSA） | DRV8305 内置 CSA → 直连 ADC | **阶段 1–3 完成**：is01 引脚全对编译通过、PGA/ADC 前端正确、DRV8305 SPI 驱动就位；阶段 4 上电待硬件 |
+| `esc6288_revA` | Production ESC (custom, in fabrication) | FD6288 / simple (EN GPIO, no SPI) | External shunt + op-amp | is01 builds; board-level HAL pending schematic migration into `board.h` |
+| `launchxl_drv8305evm` | **Validation platform** (TI official LaunchPad + BoosterPack) | DRV8305 (SPI-programmable, integrated CSA) | DRV8305 integrated CSA → direct ADC | **Phases 1–3 complete**: is01 pins correct and building, PGA/ADC front-end correct, DRV8305 SPI driver in place; Phase 4 power-on pending hardware |
 
-> 自制板回来前,用 `launchxl_drv8305evm` 先把固件 + 电机跑通(硬件解耦验证)。
-> 两块板共用同一套 FOC 控制核心,只有"板层"(HAL/栅驱/定标)不同。
-> 详见各自的 `boards/<板>/PORT_TODO.md`。
+> Use `launchxl_drv8305evm` to validate firmware and motor before the custom board returns (hardware-decoupled validation).
+> Both boards share the same FOC control core; only the board layer (HAL / gate driver / scaling) differs.
+> See `boards/<board>/PORT_TODO.md` for details.
 
-## 工具链（已在本机验证）
-- 编译器: `cl2000` @ `~/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS`（工程标 20.2.2，EABI 向前兼容）
-- SDK: `./C2000Ware_MotorControl_SDK_6_00_00_00`（工程内, 已 gitignore）
-- driverlib (f28004x) 预编译: `.../c2000ware/driverlib/f28004x/driverlib/ccs/Release/driverlib_eabi.lib`
-- **ABI: EABI**（`--abi=eabi`）—— 现代原生，**无需** F28062F 那套 `--abi=coffabi` 老 hack
-- ⚠️ 链接 SDK 库务必用 `_eabi` 后缀变体（如 `fluxHF_eabi.lib`、`f28004x_fast_rom_symbols_fpu32_eabi.lib`），
-  否则误链 COFF 版会出现 `EST_*` 未解析符号。
+## Toolchain (verified on this machine)
+- Compiler: `cl2000` @ `~/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS` (project marks 20.2.2; EABI forward-compatible)
+- SDK: `./C2000Ware_MotorControl_SDK_6_00_00_00` (in-project, gitignored)
+- driverlib (f28004x) prebuilt: `.../c2000ware/driverlib/f28004x/driverlib/ccs/Release/driverlib_eabi.lib`
+- **ABI: EABI** (`--abi=eabi`) — modern native ABI; **no need** for the legacy `--abi=coffabi` hack used on F28062F
+- ⚠️ Always use `_eabi`-suffix library variants when linking SDK libraries (e.g., `fluxHF_eabi.lib`, `f28004x_fast_rom_symbols_fpu32_eabi.lib`);
+  linking COFF variants by mistake will cause unresolved `EST_*` symbols.
 
-## 已完成
-- [x] SDK 6.0 安装 + F28004x 支持核实
-- [x] `is01_intro_hal`（RAM/EABI）命令行编译+链接验证通过 → 合法 c28xabi ELF 镜像
-- [x] `build.sh`（参数化 `BOARD × MOTOR × LAB`，注入板/电机 ID / 附加源，输出到 `build/<BOARD>/<MOTOR>/<LAB>/`）
-- [x] **esc6288_revA**: 栅驱从 DRV8320 SPI 模板收敛为 `gate_driver.c/.h` + `board.h`；HAL GPIO 安全清理
-- [x] **launchxl_drv8305evm 验证平台（阶段 1–3）**:
-  - 引脚映射(Site 1/J1-J4)从 SysConfig 板文件定死 → `is01` 引脚全对编译通过
-  - 模拟前端校正:电流 ADC B2/C0/A9(相序 A,B,C)、禁用片内 PGA(DRV8305 自带 CSA 直连)
-  - 定标 44.30V / 47.14A;CMPSS 过流映射用数据手册核对(CMPSS3/1/6,待硬件接好)
-  - DRV8305 SPI 寄存器驱动 `drv8305.c/.h`(driverlib)已编译并接入 `HAL_enableDRV`/`HAL_setupSPIA`
-    （⚠️ 但 stock is01 只在 `DRV8320_SPI` 下走 enable 路径,`DRV8305_configure()` 的**运行入口待 bring-up 时接 lab hook**）
+## Completed
+- [x] SDK 6.0 installed and F28004x support verified
+- [x] `is01_intro_hal` (RAM/EABI) command-line compile + link verified → valid c28xabi ELF image
+- [x] `build.sh` (parameterized `BOARD × MOTOR × LAB`, injects board/motor IDs and extra sources, outputs to `build/<BOARD>/<MOTOR>/<LAB>/`)
+- [x] **esc6288_revA**: gate driver converged from DRV8320 SPI template to `gate_driver.c/.h` + `board.h`; HAL GPIO safely cleaned up
+- [x] **launchxl_drv8305evm validation platform (Phases 1–3)**:
+  - Pin mapping (Site 1 / J1-J4) locked from SysConfig board file → is01 all pins correct, builds cleanly
+  - Analog front-end corrected: current ADC B2/C0/A9 (phase order A, B, C); on-chip PGA disabled (DRV8305 has integrated CSA)
+  - Scaling: 44.30 V / 47.14 A; CMPSS overcurrent mapping verified against datasheet (CMPSS3/1/6, pending hardware connection)
+  - DRV8305 SPI register driver `drv8305.c/.h` (driverlib) compiled and integrated into `HAL_enableDRV`/`HAL_setupSPIA`
+    (⚠️ stock is01 only enters the enable path under `DRV8320_SPI`; the **`DRV8305_configure()` runtime entry point must be hooked into the lab during bring-up**)
 
-## 待办（bring-up 顺序）
-**近期(验证平台 `launchxl_drv8305evm`,阶段 4 = 上电,需实物)**
-1. CCS Theia 导入工程；用 SysConfig 对 DRV8305EVM 生成 CMPSS 过流配置(见 `boards/launchxl_drv8305evm/PORT_TODO.md`)
-2. DRV8305 SPI 实测(读状态/ID、确认 6-PWM 模式、示波器复核时序)
-3. ADC 标定 (is02) → 硬件自检 (is03，先低压小电流) → 电机辨识 (is05) → 转矩/速度环 (is06/07)
+## To Do (bring-up sequence)
+**Near-term (validation platform `launchxl_drv8305evm`, Phase 4 = power-on, requires hardware)**
+1. Import project into CCS Theia; use SysConfig to generate CMPSS overcurrent configuration for DRV8305EVM (see `boards/launchxl_drv8305evm/PORT_TODO.md`)
+2. DRV8305 SPI smoke test (read status/ID, confirm 6-PWM mode, oscilloscope timing verification)
+3. ADC calibration (is02) → hardware self-test (is03, start with low voltage / low current) → motor identification (is05) → torque/speed loops (is06/07)
 
-**最终板(`esc6288_revA`,等自制板回来)**
-4. 板级 HAL 移植: 把 GPIO/ADC/EPWM/CMPSS 按原理图迁入 `boards/esc6288_revA/drivers/include/board.h`
-5. 嫁接 **MT6701 编码器**（有感 FOC，参考 SDK `absolute_encoder_boostxl_posmgr` / `servo_drive_with_can/sensored_foc`）
-6. 嫁接 **CAN / DroneCAN**（参考 `servo_drive_with_can`）
+**Production board (`esc6288_revA`, once custom board returns)**
+4. Board-level HAL porting: migrate GPIO/ADC/EPWM/CMPSS assignments from schematic into `boards/esc6288_revA/drivers/include/board.h`
+5. Integrate **MT6701 encoder** (sensored FOC; reference SDK `absolute_encoder_boostxl_posmgr` / `servo_drive_with_can/sensored_foc`)
+6. Integrate **CAN / DroneCAN** (reference `servo_drive_with_can`)
 
-## 构建
+## Build
 ```bash
-bash build.sh                                           # 默认 esc6288_revA / is01
+bash build.sh                                           # default: esc6288_revA / is01
 BOARD=esc6288_revA        LAB=is01_intro_hal bash build.sh
-BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh   # 验证平台(DRV8305_SPI 自动启用)
-BOARD=launchxl_drv8305evm LAB=all            bash build.sh   # 冒烟: 编全部单电机 lab + 汇总(回归用)
-BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is05_motor_id bash build.sh   # 选电机 profile
+BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh   # validation platform (DRV8305_SPI auto-enabled)
+BOARD=launchxl_drv8305evm LAB=all            bash build.sh   # smoke test: build all single-motor labs + summary (regression)
+BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is05_motor_id bash build.sh   # select motor profile
 MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 ```
-- `BOARD` → `build.sh` 注入 `-DBUILD_BOARD_ID`,各 `board.h` 自检防板/构建错配。
-- `MOTOR`(默认 `motor_template`)→ 注入 `-DBUILD_MOTOR_ID`,选 `motors/<型号>.h`;
-  非 template 时 board user.h 跳过 SDK 示例电机链,改用该 profile。可选:
-  `motor_template / am_4116_kva / am_4116_kvb / am_6212 / am_6215`。
-- `launchxl_drv8305evm` 会自动追加 `drv8305.c` 与 `--define=DRV8305_SPI`。
+- `BOARD` → `build.sh` injects `-DBUILD_BOARD_ID`; each `board.h` self-checks to prevent board/build mismatch.
+- `MOTOR` (default `motor_template`) → injects `-DBUILD_MOTOR_ID`, selects `motors/<model>.h`;
+  when not template, board user.h skips the SDK example motor chain and uses the profile instead. Options:
+  `motor_template / am_4116_kva / am_4116_kvb / am_6212 / am_6215`.
+- `launchxl_drv8305evm` automatically appends `drv8305.c` and `--define=DRV8305_SPI`.
 
-## 硬件安全状态
-- 两板的 `HAL_setupGPIOs()` 都默认把栅驱 EN 拉低(active-high,失能);上电测试需在 lab 入口按确认时序显式 `HAL_enableDRV()`。
-- **esc6288_revA**: 不定义 `DRV8320_SPI`,原始 DRV8320 SPI 段不执行;EN(GPIO13)用 STD 无内部上拉(靠外部下拉 fail-safe)。
-- **launchxl_drv8305evm**: EN_GATE=GPIO39(低/关)、nFAULT=GPIO13(输入);`HAL_enableDRV()` 才唤醒并配置 DRV8305。
-  ⚠️ **过流保护(CMPSS)尚未接好**(映射已核对、待 SysConfig 生成)——高电流(is05+)前务必先接好,低压小电流标定/自检可先行。
+## Hardware Safety State
+- Both boards: `HAL_setupGPIOs()` holds gate driver EN low by default (active-high, disabled); power-on testing requires explicit `HAL_enableDRV()` in the lab entry with the correct enable sequence.
+- **esc6288_revA**: `DRV8320_SPI` is not defined, so the original DRV8320 SPI block is never executed; EN (GPIO13) uses STD mode with no internal pull-up (relies on external pull-down for fail-safe).
+- **launchxl_drv8305evm**: EN_GATE=GPIO39 (low/off), nFAULT=GPIO13 (input); `HAL_enableDRV()` wakes and configures DRV8305.
+  ⚠️ **Overcurrent protection (CMPSS) is not yet wired** (mapping verified; pending SysConfig generation) — must be connected before high-current operation (is05+); low-voltage low-current calibration/self-test can proceed first.
 
-## 参考蓝本（不复用代码，仅参考逻辑/参数）
-- `../esc_drv8300_foc`: 电机参数、MT6701 驱动逻辑、DroneCAN 栈、控制经验
+## Reference Blueprint (logic/parameters reference only — no code reuse)
+- `../esc_drv8300_foc`: motor parameters, MT6701 driver logic, DroneCAN stack, control experience
 
-## 目录结构（按变化轴分层）
+## Directory Structure (layered by axis of change)
 ```
 f280049c_foc/
-├── C2000Ware_MotorControl_SDK_6_00_00_00/  # 厂商SDK, 只引用不改 (gitignore)
-├── docs/                                    # 本地参考资料: TRM/datasheet/errata/SDK lab guide
-├── boards/                                  # 变化轴1: 硬件(MOS/栅驱/分流/布局)
-│   ├── esc6288_revA/             # 最终 ESC(FD6288, 自制中): board.h/hal.c/gate_driver.c/cmd/PORT_TODO.md
-│   └── launchxl_drv8305evm/      # 验证平台(DRV8305EVM): 同上 + drv8305.c/.h(SPI 驱动)
-├── config/build_config.h                    # 选板/选电机 ID(BUILD_BOARD_ID / BUILD_MOTOR_ID)
+├── C2000Ware_MotorControl_SDK_6_00_00_00/  # vendor SDK, referenced only, not modified (gitignore)
+├── docs/                                    # local reference materials: TRM/datasheet/errata/SDK lab guide
+├── boards/                                  # axis 1: hardware (MOSFETs / gate driver / shunt / layout)
+│   ├── esc6288_revA/             # production ESC (FD6288, custom, in fabrication): board.h/hal.c/gate_driver.c/cmd/PORT_TODO.md
+│   └── launchxl_drv8305evm/      # validation platform (DRV8305EVM): same + drv8305.c/.h (SPI driver)
+├── config/build_config.h                    # board/motor ID selection (BUILD_BOARD_ID / BUILD_MOTOR_ID)
 ├── build.sh                                 # BOARD=.. MOTOR=.. LAB=.. bash build.sh
-├── motors/                                  # 变化轴2(已接入): 每电机一个 profile + motor_select.h
+├── motors/                                  # axis 2 (integrated): one profile per motor + motor_select.h
 │   # am_4116_kva/kvb, am_6212, am_6215, motor_template, motor_select.h
-└── src/{app,comms,encoder,common}/         # 变化轴3(规划): 内核, 与硬件/电机无关 (空占位)
+└── src/{app,comms,encoder,common}/         # axis 3 (planned): core logic, hardware/motor-agnostic (empty placeholders)
 ```
-- 换板/换MOS → 加 `boards/<新>`；换电机 → 加 `motors/<新>` + 在 build_config.h/build.sh 注册 ID；`src/` 不动。
-- **motors/ 已接入构建**:`MOTOR=<型号>` 选 profile,board user.h 跳过 SDK 示例电机链改用它。
-  现 4 个 profile 的 Rs/Ls/磁链是 **bench 种子**,待 is05 辨识后回填(极对数已按几何填好)。
-- ⚠️ `src/` 仍为空占位 —— 待 is06/07 跑通后填充内核逻辑。
-- bring-up: `BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh`
+- Swap board/MOSFETs → add `boards/<new>`; swap motor → add `motors/<new>` + register ID in build_config.h/build.sh; `src/` untouched.
+- **motors/ is integrated into the build**: `MOTOR=<model>` selects the profile; board user.h skips the SDK example motor chain in favor of it.
+  All 4 profiles currently have bench-seed Rs/Ls/flux values (compile and run is05); update with measured values after identification (pole pairs filled from geometry).
+- ⚠️ `src/` is still an empty placeholder — to be populated after is06/07 is running.
+- Bring-up: `BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh`
