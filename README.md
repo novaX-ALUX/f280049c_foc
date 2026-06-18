@@ -26,7 +26,7 @@ is07_speed_control    速度环
 
 ## 工具链（已在本机验证）
 - 编译器: `cl2000` @ `~/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS`（工程标 20.2.2，EABI 向前兼容）
-- SDK: `../C2000Ware_MotorControl_SDK_6_00_00_00 (ESC/ 下)`
+- SDK: `./C2000Ware_MotorControl_SDK_6_00_00_00`（工程内, 已 gitignore）
 - driverlib (f28004x) 预编译: `.../c2000ware/driverlib/f28004x/driverlib/ccs/Release/driverlib_eabi.lib`
 - **ABI: EABI**（`--abi=eabi`）—— 现代原生，**无需** F28062F 那套 `--abi=coffabi` 老 hack
 - ⚠️ 链接 SDK 库务必用 `_eabi` 后缀变体（如 `fluxHF_eabi.lib`、`f28004x_fast_rom_symbols_fpu32_eabi.lib`），
