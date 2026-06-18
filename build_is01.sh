@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 CGT="/home/patrick/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS"
-MCSDK="/home/patrick/ti/C2000Ware_MotorControl_SDK_6_00_00_00"
+MCSDK="$(cd "$(dirname "$0")/.." && pwd)/C2000Ware_MotorControl_SDK_6_00_00_00"
 DEV="$MCSDK/c2000ware/device_support/f28004x"
 DLIB="$MCSDK/c2000ware/driverlib/f28004x/driverlib"
 CL="$CGT/bin/cl2000"
