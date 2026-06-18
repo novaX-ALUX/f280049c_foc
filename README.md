@@ -1,4 +1,4 @@
-# esc_f280049c_foc —— 全新 ESC 工程（TMS320F280049C）
+# f280049c_foc —— 全新 ESC 工程（TMS320F280049C）
 
 基于 **C2000Ware MotorControl SDK 6.00.00.00** 的现代 FOC 架构（driverlib + EABI）。
 取代旧的 `../esc_drv8300_foc`（F28027F / MotorWare，停更）和中途的 `../motorware_clean`（F28062F，已弃用）。
@@ -54,7 +54,7 @@ bash build_is01.sh   # 输出 build/is01/is01.out (RAM 镜像)
 
 ## 目录结构（按变化轴分层）
 ```
-esc_f280049c_foc/
+f280049c_foc/
 ├── C2000Ware_MotorControl_SDK_6_00_00_00/  # 厂商SDK, 只引用不改 (gitignore)
 ├── src/{app,comms,encoder,common}/         # 内核: 与硬件/电机无关
 ├── boards/esc6288_revA/                     # 变化轴1: 硬件(MOS/栅驱/分流/布局)
