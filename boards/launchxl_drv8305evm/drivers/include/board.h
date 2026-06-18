@@ -19,10 +19,17 @@
 
 #define BOARD_NAME                          "launchxl_drv8305evm"
 
-// 本板插在 BoosterPack Site 1 (J1-J4)。三相 PWM 落在 EPWM6/5/3(=旧 HAL 的 J1/J2 路径)。
-#define BOARD_LAUNCHPAD_CONNECTOR_J1_J4     (0U)
-#define BOARD_LAUNCHPAD_CONNECTOR_J5_J8     (1U)
-#define BOARD_LAUNCHPAD_CONNECTOR           BOARD_LAUNCHPAD_CONNECTOR_J1_J4
+// 本板插在 BoosterPack Site 1。HAL/user.h 用 "J1_J2" 表示 Site 1(物理上 J1-J4 排针),
+// 名称必须与 user.h 的 BOOSTX_to_J1_J2/J5_J6 一致 —— 否则 #if 里未定义宏全按 0,
+// J1/J2 和 J5/J6 两条分支会同时编译(后者覆盖前者), 引脚映射全错。
+#define BOARD_LAUNCHPAD_CONNECTOR_J1_J2     (0U)   // Site 1 (J1-J4 headers)
+#define BOARD_LAUNCHPAD_CONNECTOR_J5_J6     (1U)   // Site 2 (J5-J8 headers)
+#define BOARD_LAUNCHPAD_CONNECTOR           BOARD_LAUNCHPAD_CONNECTOR_J1_J2
+
+// 本板 HAL 只为 Site 1 接线; 防止误选 Site 2 编出错配引脚。
+#if (BOARD_LAUNCHPAD_CONNECTOR != BOARD_LAUNCHPAD_CONNECTOR_J1_J2)
+#error "launchxl_drv8305evm HAL is wired for Site 1 (J1_J2) only"
+#endif
 
 //----------------------------------------------------------------------------
 // 栅极驱动: DRV8305 (SPI 可编程, 非 simple 驱动)
@@ -34,6 +41,10 @@
 
 #define BOARD_HAS_GATE_FAULT_INPUT          (1U)
 #define BOARD_GATE_FAULT_GPIO               (13U)   // nFAULT, header pin3, active-low input
+// DRV8305 无独立 OCTW/警告脚(警告经 SPI 状态寄存器读)。定义以满足 hal.h 的
+// HAL_PM_nOCTW_GPIO 宏(当前未被引用), 指向 FAULT 脚, 标记为无该输入。
+#define BOARD_HAS_GATE_WARNING_INPUT        (0U)
+#define BOARD_GATE_WARNING_GPIO             BOARD_GATE_FAULT_GPIO
 // PWRGD(header pin16)在本 LaunchPad 接到 XRSn(复位脚), 不能当 GPIO 读 -> 用 DRV8305 SPI 状态寄存器代替。
 #define BOARD_HAS_GATE_PWRGD_GPIO           (0U)
 

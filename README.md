@@ -51,7 +51,8 @@ is07_speed_control    速度环
   - 引脚映射(Site 1/J1-J4)从 SysConfig 板文件定死 → `is01` 引脚全对编译通过
   - 模拟前端校正:电流 ADC B2/C0/A9(相序 A,B,C)、禁用片内 PGA(DRV8305 自带 CSA 直连)
   - 定标 44.30V / 47.14A;CMPSS 过流映射用数据手册核对(CMPSS3/1/6,待硬件接好)
-  - DRV8305 SPI 寄存器驱动 `drv8305.c/.h`(driverlib)接入 HAL
+  - DRV8305 SPI 寄存器驱动 `drv8305.c/.h`(driverlib)已编译并接入 `HAL_enableDRV`/`HAL_setupSPIA`
+    （⚠️ 但 stock is01 只在 `DRV8320_SPI` 下走 enable 路径,`DRV8305_configure()` 的**运行入口待 bring-up 时接 lab hook**）
 
 ## 待办（bring-up 顺序）
 **近期(验证平台 `launchxl_drv8305evm`,阶段 4 = 上电,需实物)**

@@ -59,9 +59,14 @@
   - [x] 寄存器图/枚举从 MotorWare 移植到 driverlib 风格(16-bit 帧, 地址枚举, CSA 增益)
   - [x] `DRV8305_writeSpi/readSpi`(driverlib `SPI_*BlockingFIFO`)+ `DRV8305_configure`
         (清故障 + CSA 增益 10V/V → 配 47.14A; 栅驱/死区留 EVM 默认)
-  - [x] 接入 HAL: `HAL_setupGate`→`HAL_setupSPIA`(SPI 之前未被调用, 已接);
+  - [x] 接入 HAL 函数: `HAL_setupGate`→`HAL_setupSPIA`(SPI 之前未被调用, 已接);
         `HAL_enableDRV`→ EN_GATE 唤醒 + ~1ms 延时 + `DRV8305_configure`
   - [x] `build.sh` 按 BOARD 加 `drv8305.c` + `--define=DRV8305_SPI`; 两板均编译通过
+  - ⚠️ **运行入口未接(待 bring-up)**: stock SDK lab `is01_intro_hal.c` 只在 `#ifdef DRV8320_SPI`
+        里调 `HAL_enableDRV()`, 我们定义的是 `DRV8305_SPI` → 默认 is01 路径**不会执行**
+        `DRV8305_configure()`(EN 保持低, 硬件未到时安全)。即:`HAL_setupSPIA` 随 HAL 初始化跑,
+        但 DRV8305 寄存器配置/使能还没有运行入口。bring-up 时需加 DRV8305 专用 lab hook 或本地
+        lab wrapper, 在确认时序后显式调 `HAL_enableDRV()`。
   - ⚠️ **待硬件确认**: SPI 通信(读状态/ID)、6-PWM 模式(Control 7)、VDS 过流阈值/栅驱电流/死区
         按实测电机调; SPI 极性已按 MotorWare(POL0PHA0)设, 上板抓波形复核。
 - [ ] **阶段4 上电 bring-up**: is02 标定 → is03 自检(低压/小电流先) → is05 辨识 → is06/07 调环
