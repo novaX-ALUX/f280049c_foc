@@ -566,17 +566,14 @@ void HAL_setupPGAs(HAL_Handle handle)
 
     uint16_t  cnt;
 
-    // For Motor_1/Motor_2
+    // BOOSTXL-DRV8305EVM senses phase currents with the DRV8305's own CSAs,
+    // fed DIRECTLY to ADC pins B2/C0/A9 (no internal PGA in the path).
+    // ADCINB2 is also PGA3_OF: if PGA3 were enabled it would drive B2 and
+    // contend with the DRV8305 CSA output -> wrong current reading.
+    // So DISABLE the internal PGAs on this board (base HAL enabled PGA1/3/5).
     for(cnt = 0; cnt < 3; cnt++)
     {
-        // Set a gain of 12 to PGA1/3/5
-        PGA_setGain(obj->pgaHandle[cnt], PGA_GAIN_12);
-
-        // No filter resistor for output
-        PGA_setFilterResistor(obj->pgaHandle[cnt], PGA_LOW_PASS_FILTER_DISABLED);
-
-        // Enable PGA1/3/5
-        PGA_enable(obj->pgaHandle[cnt]);
+        PGA_disable(obj->pgaHandle[cnt]);
     }
 
     return;

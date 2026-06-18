@@ -39,10 +39,20 @@
   - [x] 栅驱 GPIO: EN_GATE=GPIO39(out,低), nFAULT=GPIO13(in,上拉); GPIO40 旧 nFAULT 标记为未用; GPIO23 标为 WAKE
   - [x] 定标: 44.30V / 47.14A(`user.h`)
   - [x] `BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh` 编译链接通过
-  - ⚠️ **待 TRM 核对(高电流 is05+ 前必须做)**: `HAL_setupCMPSSs` 的正输入 mux
-    `ASysCtl_selectCMPHPMux(SELECT_1/3/5, 4)` 的值 `4` 是否指向 B2/C0/A9, 需对 F28004x TRM
-    (docs/sprui33h.pdf)表 9-2 确认。CMPSS 实例 1/3/5 已对, 但 mux 值未验证 → **过流保护暂不可信**。
-    is01/is02/is03(低压小电流)不依赖此保护, 可先验证。
+  - [x] **PGA 前端**: base HAL 在 `HAL_setupPGAs` 使能 PGA1/3/5(增益12)——那是 DRV8320RS 的
+    "片内 PGA"前端。DRV8305EVM 用 DRV8305 自带 CSA 直连 ADC 引脚, 且 **B2=PGA3_OF**, PGA3 使能会
+    抢驱 B2 → 电流读错。已改为 **PGA_disable**(本板不走片内 PGA)。
+  - ⚠️ **CMPSS 过流(已用数据手册核对, 高电流 is05+ 前接好)**: 继承的实例 5/3/1 + value=4 对本板
+    **完全错误**(那是 PGA 通路)。F28004x 数据手册 Table 5-1 权威映射(直连引脚):
+    | 相 | 引脚 | CMPSS | HP 索引(mux value) |
+    |----|:--:|:--:|:--:|
+    | Ia | B2 | CMPSS3 | HP0 (value 0) |
+    | Ib | C0 | CMPSS1 | HP1 (value 1) |
+    | Ic | A9 | CMPSS6 | HP3 (value 3) |
+    需同步改: `cmpssHandle[]`→{CMPSS3,CMPSS1,CMPSS6}; `ASysCtl_selectCMPHPMux`→对应 HP value;
+    ePWM X-BAR TRIP 复用→ MUX04(CMPSS3)/MUX00(CMPSS1)/MUX10(CMPSS6)。
+    **建议**: 这套 CMPSS/X-BAR 用 TI SysConfig(CCS 导入时, README TODO#1)对 DRV8305EVM 自动生成最稳;
+    手工接易错且 is01/02/03 不依赖过流, 故暂留此精确清单, 不手工硬接。
   - 备注: WithoutOffsets 读函数对本 lab 是死代码(is01/is02 只调 WithOffsets), 未改。
     J5/J6 EPWM1/2/4 引脚仍被配置但 booster 不接, 无害。
 - [ ] **阶段3 DRV8305 SPI 驱动** (drivers/source/drv8305.c + include/drv8305.h)
