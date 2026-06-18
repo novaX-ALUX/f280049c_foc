@@ -32,13 +32,19 @@
 
 ## 阶段任务
 - [x] **阶段1 骨架**: 目录 / board.h(引脚) / cmd 链接器复用 / build_config.h 加板 ID(=2)
-- [ ] **阶段2 HAL 适配** (drivers/{include,source}): 基于 boostxl_drv8320rs HAL 改
-  - PWM: EPWM6/5/3(改 J1/J2 路径, 用本板连接器宏裁掉无关脚)
-  - 电流 ADC: SOC 通道 B2/C0/A9; CMPSS1/3/5 过流阈值
-  - 电压 ADC: A5/B0/C2/B1
-  - 栅驱: EN_GATE=GPIO39, nFAULT=GPIO13(in), WAKE=GPIO23 —— **去掉 esc6288 的 GPIO13=EN / GPIO28 残留**
-  - SPIA 初始化(给 DRV8305 用)
-  - 目标: `BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh` 编译链接通过
+- [x] **阶段2 HAL 适配** (drivers/{include,source}): 基于 boostxl_drv8320rs J1/J2 路径改
+  - [x] PWM: EPWM6/5/3 —— 天然吻合 J1/J2 路径, 无需改
+  - [x] 电流 ADC: SOC0 通道改 B2/C0/A9(`HAL_setupADCs`); getCurrent 读取索引重排成相序 A,B,C(`hal.h`)
+  - [x] 电压 ADC: A5/B0/C2/B1 —— 天然吻合, 无需改
+  - [x] 栅驱 GPIO: EN_GATE=GPIO39(out,低), nFAULT=GPIO13(in,上拉); GPIO40 旧 nFAULT 标记为未用; GPIO23 标为 WAKE
+  - [x] 定标: 44.30V / 47.14A(`user.h`)
+  - [x] `BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh` 编译链接通过
+  - ⚠️ **待 TRM 核对(高电流 is05+ 前必须做)**: `HAL_setupCMPSSs` 的正输入 mux
+    `ASysCtl_selectCMPHPMux(SELECT_1/3/5, 4)` 的值 `4` 是否指向 B2/C0/A9, 需对 F28004x TRM
+    (docs/sprui33h.pdf)表 9-2 确认。CMPSS 实例 1/3/5 已对, 但 mux 值未验证 → **过流保护暂不可信**。
+    is01/is02/is03(低压小电流)不依赖此保护, 可先验证。
+  - 备注: WithoutOffsets 读函数对本 lab 是死代码(is01/is02 只调 WithOffsets), 未改。
+    J5/J6 EPWM1/2/4 引脚仍被配置但 booster 不接, 无害。
 - [ ] **阶段3 DRV8305 SPI 驱动** (drivers/source/drv8305.c + include/drv8305.h)
   - 从 MotorWare drv8305.h 移植寄存器/枚举到 driverlib 风格
   - 上电序列: WAKE→EN_GATE→写 CTRL 寄存器(CSA 增益 10V/V, 死区, OC 阈值)→读 nFAULT/状态

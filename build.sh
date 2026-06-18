@@ -9,6 +9,13 @@ BOARD="${BOARD:-esc6288_revA}"
 LAB="${LAB:-is01_intro_hal}"
 MOTOR="${MOTOR:-motor_template}"     # 预留: 后续从 motors/ 注入电机参数
 
+# 选板: BOARD 名 -> BUILD_BOARD_ID(与 config/build_config.h + 各 board.h 自检一致)
+case "$BOARD" in
+  esc6288_revA)        BOARD_ID=1 ;;
+  launchxl_drv8305evm) BOARD_ID=2 ;;
+  *) echo "未知板 BOARD=$BOARD (见 boards/ 与 config/build_config.h)"; exit 1 ;;
+esac
+
 CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS}"
 MCSDK="${MCSDK_ROOT:-$HERE/C2000Ware_MotorControl_SDK_6_00_00_00}"
 DEV="$MCSDK/c2000ware/device_support/f28004x"
@@ -22,8 +29,8 @@ OUT="$HERE/build/${BOARD}_${LAB}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
 [ -x "$CL" ] || { echo "找不到 cl2000: $CL (设置 CGT)"; exit 1; }
 
 CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
-# 选板事实来源 = config/build_config.h 的 BUILD_BOARD_ID(board.h 自检);不再用命令行 -D 选板。
-DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE"
+# 选板: build.sh 按 BOARD 注入 BUILD_BOARD_ID; 各 board.h 用它自检防止板/构建错配。
+DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID"
 INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/control/pi/include"
   -I"$MCSDK/libraries/control/vsf/include" -I"$MCSDK/libraries/control/fwc/include" -I"$MCSDK/libraries/control/mtpa/include"
   -I"$MCSDK/libraries/control/vs_freq/include" -I"$MCSDK/libraries/filter/filter_fo/include" -I"$MCSDK/libraries/filter/filter_so/include"
