@@ -51,3 +51,19 @@ bash build_is01.sh   # 输出 build/is01/is01.out (RAM 镜像)
 
 ## 参考蓝本（不复用代码，仅参考逻辑/参数）
 - `../esc_drv8300_foc`: 电机参数、MT6701 驱动逻辑、DroneCAN 栈、控制经验
+
+## 目录结构（按变化轴分层）
+```
+esc_f280049c_foc/
+├── C2000Ware_MotorControl_SDK_6_00_00_00/  # 厂商SDK, 只引用不改 (gitignore)
+├── src/{app,comms,encoder,common}/         # 内核: 与硬件/电机无关
+├── boards/esc6288_revA/                     # 变化轴1: 硬件(MOS/栅驱/分流/布局)
+│   ├── drivers/{source,include}/  hal/gate_driver/...
+│   ├── cmd/                        f28004x 链接器
+│   └── PORT_TODO.md               FD6288 移植清单
+├── motors/                                  # 变化轴2: 电机参数(每电机一个头)
+├── config/build_config.h                    # 选 {board × motor}
+└── build.sh                                 # BOARD=.. LAB=.. bash build.sh
+```
+- 换板/换MOS → 加 `boards/<新>`；换电机 → 加 `motors/<新>`；二者正交，`src/` 不动。
+- bring-up: `BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh`
