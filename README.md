@@ -6,7 +6,7 @@
 ## 目标平台
 - MCU: **TMS320F280049C**（F28004x，100 MHz，FPU + **TMU**，256KB Flash / 100KB RAM）
 - 软件栈: **C2000Ware MotorControl SDK 6.0** + driverlib（**不再是 MotorWare**）
-- 栅极驱动: FD6288/simple gate driver（无 SPI 寄存器配置，板级 EN GPIO 控制）
+- 硬件板卡: 最终板 `esc6288_revA` 使用 FD6288/simple gate driver；验证板 `launchxl_drv8305evm` 使用 DRV8305（详见“板卡”表）
 - 控制: InstaSPIN **FAST 无感**（F280049C 带 FAST ROM）+ 后续嫁接 **MT6701 有感**
 
 ## 选定底座
@@ -77,9 +77,13 @@ bash build.sh                                           # 默认 esc6288_revA / 
 BOARD=esc6288_revA        LAB=is01_intro_hal bash build.sh
 BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh   # 验证平台(DRV8305_SPI 自动启用)
 BOARD=launchxl_drv8305evm LAB=all            bash build.sh   # 冒烟: 编全部单电机 lab + 汇总(回归用)
+BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is05_motor_id bash build.sh   # 选电机 profile
 MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 ```
 - `BOARD` → `build.sh` 注入 `-DBUILD_BOARD_ID`,各 `board.h` 自检防板/构建错配。
+- `MOTOR`(默认 `motor_template`)→ 注入 `-DBUILD_MOTOR_ID`,选 `motors/<型号>.h`;
+  非 template 时 board user.h 跳过 SDK 示例电机链,改用该 profile。可选:
+  `motor_template / am_4116_kva / am_4116_kvb / am_6212 / am_6215`。
 - `launchxl_drv8305evm` 会自动追加 `drv8305.c` 与 `--define=DRV8305_SPI`。
 
 ## 硬件安全状态
@@ -95,16 +99,18 @@ MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 ```
 f280049c_foc/
 ├── C2000Ware_MotorControl_SDK_6_00_00_00/  # 厂商SDK, 只引用不改 (gitignore)
+├── docs/                                    # 本地参考资料: TRM/datasheet/errata/SDK lab guide
 ├── boards/                                  # 变化轴1: 硬件(MOS/栅驱/分流/布局)
 │   ├── esc6288_revA/             # 最终 ESC(FD6288, 自制中): board.h/hal.c/gate_driver.c/cmd/PORT_TODO.md
 │   └── launchxl_drv8305evm/      # 验证平台(DRV8305EVM): 同上 + drv8305.c/.h(SPI 驱动)
-├── config/build_config.h                    # 选板 ID(BUILD_BOARD_ID); build.sh 按 BOARD 注入 + board.h 自检
-├── build.sh                                 # BOARD=.. LAB=.. bash build.sh
-│   # ↓↓↓ 以下为规划中的目录,当前仅占位/模板,尚未接入构建 ↓↓↓
-├── src/{app,comms,encoder,common}/         # 变化轴3(规划): 内核, 与硬件/电机无关 (空占位)
-└── motors/                                  # 变化轴2(规划): 电机参数(每电机一个头, 模板)
+├── config/build_config.h                    # 选板/选电机 ID(BUILD_BOARD_ID / BUILD_MOTOR_ID)
+├── build.sh                                 # BOARD=.. MOTOR=.. LAB=.. bash build.sh
+├── motors/                                  # 变化轴2(已接入): 每电机一个 profile + motor_select.h
+│   # am_4116_kva/kvb, am_6212, am_6215, motor_template, motor_select.h
+└── src/{app,comms,encoder,common}/         # 变化轴3(规划): 内核, 与硬件/电机无关 (空占位)
 ```
-- 换板/换MOS → 加 `boards/<新>`；换电机 → 加 `motors/<新>`；二者正交，`src/` 不动。
-- ⚠️ **现状**:`src/` 为空占位,`motors/` 仅模板 —— 电机参数暂仍在 `boards/.../user.h`(SDK 单电机模板)。
-  待 is05 辨识 + is06/07 跑通后,再把电机宏从 board 抽到 `motors/`,并填充 `src/`。
+- 换板/换MOS → 加 `boards/<新>`；换电机 → 加 `motors/<新>` + 在 build_config.h/build.sh 注册 ID；`src/` 不动。
+- **motors/ 已接入构建**:`MOTOR=<型号>` 选 profile,board user.h 跳过 SDK 示例电机链改用它。
+  现 4 个 profile 的 Rs/Ls/磁链是 **bench 种子**,待 is05 辨识后回填(极对数已按几何填好)。
+- ⚠️ `src/` 仍为空占位 —— 待 is06/07 跑通后填充内核逻辑。
 - bring-up: `BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh`
