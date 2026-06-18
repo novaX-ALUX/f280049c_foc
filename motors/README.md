@@ -22,3 +22,35 @@
 
 > 老工程（`../esc_drv8300_foc`）里有这些电机的旧参数，但 6212/6215 的 profile 有已知混淆、
 > 4116 flux 也有偏差 —— **不直接复用,统一以 is05 在本工程实物上重新辨识为准**。
+
+## 标准流程：选电机 → is05 辨识 → 回填 → 调环
+以 `am_6215` 在验证板上为例(其余电机同理,换 `MOTOR=`):
+
+0. **上电前确认**(安全):极对数对(几何)、`MAX_CURRENT_A`/`RES_EST`/`IND_EST` 在电源限流内、
+   CMPSS 过流已接(高电流前,见板 PORT_TODO)、电源先低压(12–24V)。
+
+1. **辨识**:
+   ```bash
+   BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is05_motor_id bash build.sh
+   ```
+   烧录运行,读 FAST 估出的 `Rs / Ls_d / Ls_q / 磁链(Flux)`(看 watch 变量 / datalog)。
+
+2. **回填**:把辨识值写回 `motors/am_6215.h`,**覆盖** bench 种子那几行(`Rs_Ohm / Ls_d_H /
+   Ls_q_H / RATED_FLUX_VpHz`),并把该行注释从“种子, is05 覆盖”改成“is05 实测 yyyy-mm-dd”。
+   顺手填 `MOTOR_KV_RPM_PER_V`。勾掉本文件上面清单里的 `[ ]`。
+
+3. **验证电流环**:
+   ```bash
+   BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is06_torque_control bash build.sh
+   ```
+   小 Iq 自由轴试转,确认电流环稳、相序对(不反转/不失步)。
+
+4. **速度环 + 调参**:
+   ```bash
+   BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is07_speed_control bash build.sh
+   ```
+   调 `INERTIA_Kgm2` 与速度环 Kp/Ki;按实测把 `FREQ_MAX_HZ`/`RATED_*`/`VOLT_*` 收敛到真实范围。
+
+5. 每改完一个电机, `git commit` 该 profile(标注 is05 日期 + 电源/温度条件)。
+
+> 回归:任何改动后 `BOARD=<板> LAB=all bash build.sh` 应仍 12/12、0 告警(默认 template,不受 profile 影响)。
