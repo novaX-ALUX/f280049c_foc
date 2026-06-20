@@ -27,19 +27,32 @@ case "$BOARD" in
   *) echo "Unknown board BOARD=$BOARD (see boards/ and config/build_config.h)"; exit 1 ;;
 esac
 
-# TI C2000 compiler (CGT). Priority: $CGT env > auto-detect newest install > legacy default.
-# Auto-detect scans common CCS/standalone-CGT locations so the script is not pinned to one machine.
+# TI C2000 compiler (CGT). Priority: $CGT env > validated LTS > newest installed > legacy default.
+# Flight/production firmware pins to the validated LTS toolchain for qualified, reproducible builds
+# (newer CGT versions emit benign vendor-driverlib-header warnings and aren't requalified here).
+# Auto-detect only falls back to the newest installed CGT when the validated one is absent.
+CGT_PIN="ti-cgt-c2000_22.6.0.LTS"   # validated toolchain for this project
 if [ -z "${CGT:-}" ]; then
-  for c in $(ls -d \
-        "$HOME"/ti/ccs*/tools/compiler/ti-cgt-c2000_* \
-        "$HOME"/ti/ccs*/ccs/tools/compiler/ti-cgt-c2000_* \
-        "$HOME"/ti/ti-cgt-c2000_* \
-        /opt/ti/ccs*/tools/compiler/ti-cgt-c2000_* \
-        /opt/ti/ti-cgt-c2000_* 2>/dev/null | sort -Vr); do
-    if [ -x "$c/bin/cl2000" ]; then CGT="$c"; break; fi
+  # 1) prefer the validated version wherever it is installed
+  for c in "$HOME"/ti/ccs*/tools/compiler/"$CGT_PIN" \
+           "$HOME"/ti/ccs*/ccs/tools/compiler/"$CGT_PIN" \
+           "$HOME"/ti/"$CGT_PIN" \
+           /opt/ti/ccs*/tools/compiler/"$CGT_PIN" /opt/ti/"$CGT_PIN"; do
+    [ -x "$c/bin/cl2000" ] && CGT="$c" && break
   done
+  # 2) else newest installed CGT (portability; may emit benign newer-compiler vendor warnings)
+  if [ -z "${CGT:-}" ]; then
+    for c in $(ls -d \
+          "$HOME"/ti/ccs*/tools/compiler/ti-cgt-c2000_* \
+          "$HOME"/ti/ccs*/ccs/tools/compiler/ti-cgt-c2000_* \
+          "$HOME"/ti/ti-cgt-c2000_* \
+          /opt/ti/ccs*/tools/compiler/ti-cgt-c2000_* \
+          /opt/ti/ti-cgt-c2000_* 2>/dev/null | sort -Vr); do
+      [ -x "$c/bin/cl2000" ] && CGT="$c" && break
+    done
+  fi
 fi
-CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS}"  # legacy fallback
+CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/$CGT_PIN}"  # legacy fallback
 MCSDK="${MCSDK_ROOT:-$HERE/C2000Ware_MotorControl_SDK_6_00_00_00}"
 
 # LAB=all: smoke-build every supported single-motor lab for this BOARD (excluding the is11 dual-motor lab), summarize pass/fail
