@@ -79,7 +79,7 @@ INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/c
   -I"$MCSDK/libraries/utilities/datalog/include" -I"$MCSDK/libraries/utilities/diagnostic/include" -I"$MCSDK/libraries/utilities/traj/include"
   -I"$MCSDK/libraries/utilities/types/include" -I"$MCSDK/solutions/common/sensorless_foc/include/"
   -I"$HERE/config" -I"$HERE/motors" -I"$BD/drivers/include" -I"$DLIB" -I"$DEV/common/include/" -I"$DEV/headers/include/" -I"$CGT/include"
-  -I"$HERE/src/common" -I"$HERE/src/encoder" -I"$HERE/src/app" )
+  -I"$HERE/src/common" -I"$HERE/src/encoder" -I"$HERE/src/app" -I"$HERE/src/comms" )
 
 # --- SRC_CHECK=1: cross-compile ONLY the src/ product modules (no link), as a 0-warning gate. ---
 # Deliberately placed AFTER CFLAGS/DEFINES/INC are built and BEFORE the LAB=all / single-lab paths,

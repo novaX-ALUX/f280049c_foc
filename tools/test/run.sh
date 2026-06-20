@@ -9,7 +9,7 @@ SRC="$HERE/src"
 TDIR="$HERE/tools/test"
 CC="${CC:-gcc}"
 CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
-INCS=(-I"$SRC/common" -I"$SRC/encoder" -I"$SRC/app" -I"$TDIR")
+INCS=(-I"$SRC/common" -I"$SRC/encoder" -I"$SRC/app" -I"$SRC/comms" -I"$TDIR")
 
 # --- purity check: src/ must stay free of SDK / board / driverlib headers ---
 # (forbidden -> the host build would only pass because INC paths happen to be wide;
