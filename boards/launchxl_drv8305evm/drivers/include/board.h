@@ -77,6 +77,19 @@
 #define BOARD_NUM_VOLTAGE_SENSORS           (3U)
 
 //----------------------------------------------------------------------------
+// DroneCAN transport (CANA, 1 Mbit, 29-bit extended) -- pins per the SDK
+// servo_drive_with_can reference (GPIO32 TX / GPIO33 RX on the F280049C LaunchPad).
+// Consumed by boards/.../can_bridge.c; values resolve against driverlib (CANA_BASE etc.).
+//----------------------------------------------------------------------------
+#define BOARD_CAN_BASE                      CANA_BASE
+#define BOARD_CAN_TX_GPIO                   (32U)
+#define BOARD_CAN_TX_PINCFG                 GPIO_32_CANA_TX
+#define BOARD_CAN_RX_GPIO                   (33U)
+#define BOARD_CAN_RX_PINCFG                 GPIO_33_CANA_RX
+#define BOARD_CAN_BITRATE                   (1000000UL)
+#define BOARD_CAN_INT                       INT_CANA0
+
+//----------------------------------------------------------------------------
 // Board selection guard: build.sh selects the board via -DBUILD_BOARD_ID, which must match this header
 //----------------------------------------------------------------------------
 #if (BUILD_BOARD_ID != BUILD_BOARD_ID_LAUNCHXL_DRV8305EVM)

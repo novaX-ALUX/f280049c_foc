@@ -21,6 +21,11 @@
 #define BOARD_NUM_CURRENT_SENSORS           (3U)
 #define BOARD_NUM_VOLTAGE_SENSORS           (3U)
 
+// TODO(CAN): DroneCAN transport pins are not yet known for esc6288_revA (board/schematic
+// pending). Once fixed, define BOARD_CAN_BASE (CANA or CANB), BOARD_CAN_TX/RX_GPIO +
+// _PINCFG, BOARD_CAN_BITRATE (1 Mbit), BOARD_CAN_INT -- mirror launchxl_drv8305evm/board.h
+// -- and add boards/esc6288_revA/drivers/source/can_bridge.c. See PORT_TODO.md.
+
 #if (BUILD_BOARD_ID != BUILD_BOARD_ID_ESC6288_REVA)
 #error "config/build_config.h does not select esc6288_revA"
 #endif

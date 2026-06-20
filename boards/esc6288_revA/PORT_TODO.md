@@ -30,5 +30,13 @@ The items below are the changes needed to adapt from DRV8320RS to the **FD6288/s
 - [x] `drivers/include/board.h` added.
 - [ ] Continue migrating ADC/EPWM/CMPSS channel assignments from SDK template macros into `board.h`.
 
+## 6. DroneCAN / CAN transport
+- [ ] CAN TX/RX pins not yet known (schematic pending). Once fixed, define `BOARD_CAN_BASE`
+  (CANA or CANB), `BOARD_CAN_TX/RX_GPIO` + `_PINCFG`, `BOARD_CAN_BITRATE` (1 Mbit), `BOARD_CAN_INT`
+  in `board.h` (mirror `launchxl_drv8305evm/board.h`), then add
+  `drivers/source/can_bridge.c` and wire `can_bridge_init()/enable_ints()` from the product main.
+- The bridge logic itself is board-agnostic (driverlib CAN + the `dronecan_fifo` queue); only
+  the pins differ. The launchxl_drv8305evm bridge is the reference implementation.
+
 ## Information Needed
 PWM input mode / number of shunts · resistance · op-amp gain / presence of nFAULT / DC bus voltage divider ratio → provide these to complete the port precisely.
