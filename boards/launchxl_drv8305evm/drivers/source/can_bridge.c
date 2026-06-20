@@ -12,17 +12,21 @@
 static dronecan_fifo_t  s_rx;
 static dronecan_fifo_t  s_tx;
 static volatile bool    s_tx_in_flight;
+static volatile bool    s_ints_enabled;   /* CANA0 interrupt registered + enabled */
 
 void can_bridge_init(void)
 {
     dronecan_fifo_init(&s_rx);
     dronecan_fifo_init(&s_tx);
     s_tx_in_flight = false;
+    s_ints_enabled = false;
 
-    /* CAN GPIO mux: TX push-pull (pull-up), RX input. */
+    /* CAN GPIO mux: own the pins on CPU1, TX push-pull (pull-up), RX input. */
+    GPIO_setMasterCore(BOARD_CAN_TX_GPIO, GPIO_CORE_CPU1);
     GPIO_setPinConfig(BOARD_CAN_TX_PINCFG);
     GPIO_setDirectionMode(BOARD_CAN_TX_GPIO, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(BOARD_CAN_TX_GPIO, GPIO_PIN_TYPE_PULLUP);
+    GPIO_setMasterCore(BOARD_CAN_RX_GPIO, GPIO_CORE_CPU1);
     GPIO_setPinConfig(BOARD_CAN_RX_PINCFG);
     GPIO_setDirectionMode(BOARD_CAN_RX_GPIO, GPIO_DIR_MODE_IN);
     GPIO_setPadConfig(BOARD_CAN_RX_GPIO, GPIO_PIN_TYPE_STD);
@@ -50,6 +54,8 @@ void can_bridge_enable_ints(void)
     Interrupt_enable(BOARD_CAN_INT);
     Interrupt_enableInCPU(INTERRUPT_CPU_INT9);
     CAN_enableGlobalInterrupt(BOARD_CAN_BASE, CAN_GLOBAL_INT_CANINT0);
+    s_ints_enabled = true;
+    can_bridge_tx_pump(); /* drain anything queued before interrupts were enabled */
 }
 
 /*
@@ -81,6 +87,11 @@ static void tx_load_next(void)
 
 void can_bridge_tx_pump(void)
 {
+    /* Before interrupts are enabled there is no ISR to race, and we must not touch CANA0's
+     * enable state. After enable, bracket the shared-mailbox load in a CANA0 critical section. */
+    if (!s_ints_enabled) {
+        return; /* queued frames are pumped once can_bridge_enable_ints() runs */
+    }
     Interrupt_disable(BOARD_CAN_INT);
     tx_load_next();
     Interrupt_enable(BOARD_CAN_INT);
@@ -92,6 +103,9 @@ bool can_bridge_write(const dronecan_frame_t *f)
 
     if (f == NULL || !f->extended || f->dlc > 8U) {
         return false; /* reject malformed before it reaches the bus */
+    }
+    if (!s_ints_enabled) {
+        return dronecan_fifo_push(&s_tx, f); /* enqueue only; pumped after enable_ints() */
     }
     Interrupt_disable(BOARD_CAN_INT);
     ok = dronecan_fifo_push(&s_tx, f);
