@@ -85,32 +85,47 @@ static void tx_load_next(void)
     CAN_sendMessage(BOARD_CAN_BASE, CAN_BRIDGE_TX_OBJ, f.dlc, f.data);
 }
 
+/*
+ * Short critical section around the shared TX mailbox: mask interrupts globally (INTM) and
+ * restore only if they were enabled on entry. This preserves any outer "interrupts disabled"
+ * state and -- unlike Interrupt_disable(BOARD_CAN_INT) -- does not clear the group IFR or ACK
+ * the PIE group, so it can't perturb other pending group-9 interrupts.
+ */
 void can_bridge_tx_pump(void)
 {
-    /* Before interrupts are enabled there is no ISR to race, and we must not touch CANA0's
-     * enable state. After enable, bracket the shared-mailbox load in a CANA0 critical section. */
+    bool was_disabled;
+
+    /* Before interrupts are enabled there is no ISR to race; do not send yet (the TX-complete
+     * ISR could not fire to advance the queue). Frames are pumped from can_bridge_enable_ints(). */
     if (!s_ints_enabled) {
-        return; /* queued frames are pumped once can_bridge_enable_ints() runs */
+        return;
     }
-    Interrupt_disable(BOARD_CAN_INT);
+    was_disabled = Interrupt_disableGlobal();
     tx_load_next();
-    Interrupt_enable(BOARD_CAN_INT);
+    if (!was_disabled) {
+        Interrupt_enableGlobal();
+    }
 }
 
 bool can_bridge_write(const dronecan_frame_t *f)
 {
-    bool ok;
+    bool ok, was_disabled;
 
-    if (f == NULL || !f->extended || f->dlc > 8U) {
-        return false; /* reject malformed before it reaches the bus */
+    /* Reject malformed before it reaches the bus: must be a 29-bit extended frame, DLC <= 8.
+     * (driverlib silently masks the id with CAN_IF1ARB_ID_M, so an out-of-range id would be
+     * transmitted as a different id than requested.) */
+    if (f == NULL || !f->extended || f->dlc > 8U || f->id > 0x1FFFFFFFUL) {
+        return false;
     }
     if (!s_ints_enabled) {
         return dronecan_fifo_push(&s_tx, f); /* enqueue only; pumped after enable_ints() */
     }
-    Interrupt_disable(BOARD_CAN_INT);
+    was_disabled = Interrupt_disableGlobal();
     ok = dronecan_fifo_push(&s_tx, f);
     tx_load_next();
-    Interrupt_enable(BOARD_CAN_INT);
+    if (!was_disabled) {
+        Interrupt_enableGlobal();
+    }
     return ok;
 }
 
