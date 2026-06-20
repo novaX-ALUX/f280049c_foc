@@ -46,17 +46,21 @@ void esc_control_init(esc_control_state_t *st, const esc_control_cfg_t *cfg,
     park_ref_init(&st->ref, &cfg->park_ref, load, load_ctx);
 }
 
-/* True when every latched hard-fault condition has cleared and the operator disarmed. */
+/* True when every latched hard-fault condition has cleared and the operator disarmed.
+ * Encoder-stale only blocks clearing when ENCODER_STALE was actually latched (it is a fault
+ * only while parking) -- otherwise an absent encoder on the bench would wedge an unrelated
+ * over-volt / gate fault permanently. */
 static bool fault_clearable(const esc_control_state_t *st, const esc_feedback_t *fb, bool arm)
 {
     const esc_control_cfg_t *c = &st->cfg;
+    bool enc_ok = ((st->hard_fault_bits & ESC_HF_ENCODER_STALE) == 0u) || !fb->enc_stale;
     return (!arm)
         && !fb->gate_fault
         && (fb->vbus_V < c->vbus_ov_clr)
         && (fb->vbus_V > c->vbus_uv_clr)
         && (fb->temp_C < c->temp_ot_clr)
         && (fabsf(fb->i_motor_A) < c->oc_clr_A)
-        && !fb->enc_stale;
+        && enc_ok;
 }
 
 esc_result_t esc_control_step(esc_control_state_t *st,
@@ -168,26 +172,33 @@ esc_result_t esc_control_step(esc_control_state_t *st,
         break;
 
     case ESC_STATE_ARMED:
+        /* Disarm is handled BEFORE enabling output so the emitted tick is coast. */
+        if (!arm) {
+            st->state    = ESC_STATE_DISARMED;
+            st->iq_ref_A = 0.0f;
+            break;
+        }
         enable = true;
         st->iq_ref_A = 0.0f;
-        if (!arm) {
-            st->state = ESC_STATE_DISARMED;
-        } else if (throttle > c->throttle_run_thresh) {
+        if (throttle > c->throttle_run_thresh) {
             st->state = ESC_STATE_RUN_TORQUE;
         }
         break;
 
     case ESC_STATE_RUN_TORQUE:
+        if (!arm) {
+            st->state    = ESC_STATE_DISARMED;
+            st->iq_ref_A = 0.0f;
+            break;
+        }
         mode   = ESC_CTRL_TORQUE;
         enable = true;
         slew_to(&st->iq_ref_A, throttle * c->iq_max_A, c->iq_slew_A_s, dt_s);
         iq_ref = st->iq_ref_A;
-        if (!arm) {
-            st->state = ESC_STATE_DISARMED;
-        } else if (c->auto_park_enable
-                   && throttle <= c->throttle_idle_eps
-                   && fabsf(fb->speed_est_krpm) < c->park_engage_speed_krpm
-                   && st->ref.valid) {
+        if (c->auto_park_enable
+            && throttle <= c->throttle_idle_eps
+            && fabsf(fb->speed_est_krpm) < c->park_engage_speed_krpm
+            && st->ref.valid) {
             prop_park_reset(&st->park);
             st->state = ESC_STATE_PARKING;
         }
@@ -195,6 +206,11 @@ esc_result_t esc_control_step(esc_control_state_t *st,
 
     case ESC_STATE_PARKING:
     case ESC_STATE_PARKED: {
+        if (!arm) {
+            prop_park_reset(&st->park);
+            st->state = ESC_STATE_DISARMED;
+            break;
+        }
         mode   = ESC_CTRL_SPEED;
         enable = true;
         prop_park_out_t po;
@@ -208,10 +224,7 @@ esc_result_t esc_control_step(esc_control_state_t *st,
         if (st->state == ESC_STATE_PARKING && po.settled) {
             st->state = ESC_STATE_PARKED;
         }
-        if (!arm) {
-            prop_park_reset(&st->park);
-            st->state = ESC_STATE_DISARMED;
-        } else if (throttle > c->throttle_run_thresh) {
+        if (throttle > c->throttle_run_thresh) {
             prop_park_reset(&st->park);
             st->state = ESC_STATE_RUN_TORQUE;
         }
@@ -231,12 +244,17 @@ esc_result_t esc_control_step(esc_control_state_t *st,
         enable = false; brake = false;
         st->iq_ref_A = 0.0f;
     } else if (timed_out) {
-        /* COAST: immediate, no slew. Drop running states to ARMED so recovery is a clean
-         * throttle-driven re-entry (not an automatic jump back into RUN). */
+        /* Link-loss failsafe: immediate, no slew. Default COAST (gate off, freewheel);
+         * failsafe_brake=true instead actively brakes (gate on, zero refs, brake asserted).
+         * Drop running states to ARMED so recovery is a clean throttle-driven re-entry. */
         mode = ESC_CTRL_TORQUE;
         iq_ref = 0.0f; speed_ref = 0.0f; iq_limit = 0.0f;
-        enable = false; brake = false;
         st->iq_ref_A = 0.0f;
+        if (c->failsafe_brake) {
+            enable = true;  brake = true;
+        } else {
+            enable = false; brake = false;
+        }
         if (st->state == ESC_STATE_RUN_TORQUE
             || st->state == ESC_STATE_PARKING
             || st->state == ESC_STATE_PARKED) {

@@ -303,6 +303,91 @@ int main(void)
         CHECK_NEAR(o.speed_ref_krpm, 0.0f, 1e-9f);
     }
 
+    /* Disarm is coast on the SAME tick from ARMED. */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        drive(&st, 0.0f, true,  &fb, 0.001f, &o, &t); /* -> ARMED */
+        drive(&st, 0.0f, true,  &fb, 0.001f, &o, &t); /* ARMED, enabled */
+        CHECK(o.enable);
+        drive(&st, 0.0f, false, &fb, 0.001f, &o, &t); /* disarm */
+        CHECK(t.state == ESC_STATE_DISARMED);
+        CHECK(!o.enable);
+    }
+
+    /* Disarm is coast on the SAME tick from RUN_TORQUE. */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);
+        drive(&st, 0.5f, false, &fb, 0.001f, &o, &t); /* throttle up but disarmed */
+        CHECK(t.state == ESC_STATE_DISARMED);
+        CHECK(!o.enable);
+        CHECK_NEAR(o.iq_ref_A, 0.0f, 1e-9f);
+    }
+
+    /* Disarm is coast on the SAME tick from PARKED. */
+    {
+        g_ref_valid = true; g_ref_value = 0.0f; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(true, 1.0e6f);
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);
+        drive(&st, 0.0f, true, &fb, 0.001f, &o, &t);
+        for (int i = 0; i < 10; ++i) {
+            drive(&st, 0.0f, true, &fb, 0.02f, &o, &t);
+        }
+        CHECK(t.state == ESC_STATE_PARKED);
+        drive(&st, 0.0f, false, &fb, 0.02f, &o, &t); /* disarm */
+        CHECK(t.state == ESC_STATE_DISARMED);
+        CHECK(!o.enable);
+        CHECK_NEAR(o.speed_ref_krpm, 0.0f, 1e-9f);
+    }
+
+    /* An unrelated hard fault clears even with a stale encoder (stale was never latched). */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);
+        fb.enc_stale = true;          /* encoder absent on the bench, but RUN is sensorless */
+        fb.vbus_V = 35.0f;            /* overvolt -> FAULT (not an encoder fault) */
+        drive(&st, 0.5f, true, &fb, 0.001f, &o, &t);
+        CHECK(t.state == ESC_STATE_FAULT);
+        CHECK((t.hard_fault_bits & ESC_HF_ENCODER_STALE) == 0u);
+        fb.vbus_V = 24.0f;            /* overvolt gone; encoder still stale */
+        drive(&st, 0.0f, false, &fb, 0.001f, &o, &t);
+        CHECK(t.state == ESC_STATE_DISARMED);
+        CHECK(t.hard_fault_bits == 0u);
+    }
+
+    /* failsafe_brake=true: command timeout actively brakes (gate on, brake asserted, zero refs). */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        c.failsafe_brake = true;
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);
+        esc_control_step(&st, NULL, &fb, 0.2f, &o, &t);
+        CHECK((t.status_bits & ESC_ST_CMD_TIMEOUT) != 0u);
+        CHECK(o.brake);
+        CHECK(o.enable);
+        CHECK_NEAR(o.iq_ref_A, 0.0f, 1e-9f);
+        CHECK_NEAR(o.speed_ref_krpm, 0.0f, 1e-9f);
+        CHECK(t.state == ESC_STATE_ARMED);
+    }
+
     /* Sustained large park error -> PARK_TRIP latches to FAULT. */
     {
         g_ref_valid = true; g_ref_value = 0.0f; g_seq = 0;
