@@ -30,6 +30,12 @@ void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg)
     dn->seq           = 0u;
     dn->zero_run      = 0u;
     dn->armed         = false;
+
+    dn->sched_primed        = false;
+    dn->last_node_status_ms = 0u;
+    dn->last_esc_status_ms  = 0u;
+    dn->tid_node_status     = 0u;
+    dn->tid_esc_status      = 0u;
 }
 
 uint16_t dronecan_node_id(const dronecan_t *dn)      { return dn->node_id; }
@@ -102,6 +108,144 @@ static void handle_raw_command(dronecan_t *dn, const dronecan_frame_t *f, dronec
         res->command.arm = false;
     }
     res->command_updated = true;
+}
+
+/* ---- TX builders ---- */
+
+static int32_t saturate_int(int32_t v, int32_t lo, int32_t hi)
+{
+    if (v < lo) { return lo; }
+    if (v > hi) { return hi; }
+    return v;
+}
+
+/* Build the single NodeStatus frame for the given uptime/health. */
+static void build_node_status(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
+                              dronecan_frame_t *f)
+{
+    dronecan_payload_t p;
+    uint16_t plen, i;
+    uint16_t health = (tel->hard_fault_bits != 0u) ? DRONECAN_HEALTH_ERROR : DRONECAN_HEALTH_OK;
+    uint16_t vendor = (uint16_t)(tel->hard_fault_bits & 0xFFFFu);
+
+    dronecan_payload_init(&p);
+    dronecan_pack_uint(&p, now_ms / 1000u, 32u);          /* uptime_sec */
+    dronecan_pack_uint(&p, health, 2u);                   /* health */
+    dronecan_pack_uint(&p, DRONECAN_MODE_OPERATIONAL, 3u);/* mode */
+    dronecan_pack_uint(&p, 0u, 3u);                       /* sub_mode */
+    dronecan_pack_uint(&p, vendor, 16u);                  /* vendor_specific_status_code */
+    plen = dronecan_payload_bytelen(&p);
+
+    f->extended = true;
+    f->id = dronecan_msg_id(DRONECAN_PRIO_NODE_STATUS, DRONECAN_DTID_NODE_STATUS, dn->node_id);
+    for (i = 0; i < plen; ++i) {
+        f->data[i] = p.bytes[i];
+    }
+    f->data[plen] = dronecan_tail_encode(true, true, false, dn->tid_node_status);
+    f->dlc = (uint16_t)(plen + 1u);
+}
+
+/* Build the 3-frame esc.Status transfer. out3 must have room for 3 frames. */
+static void build_esc_status(dronecan_t *dn, const esc_telemetry_t *tel, dronecan_frame_t *out3)
+{
+    dronecan_payload_t p;
+    uint16_t plen, seed, crc, total, off, fidx, i;
+    uint16_t buf[2 + DRONECAN_PAYLOAD_MAX];
+    uint32_t id;
+    int32_t rpm;
+
+    dronecan_payload_init(&p);
+    dronecan_pack_uint(&p, 0u, 32u);                                       /* error_count = 0 */
+    dronecan_pack_float16(&p, tel->vbus_V);                               /* voltage (V) */
+    dronecan_pack_float16(&p, tel->current_A);                            /* current (A) */
+    dronecan_pack_float16(&p, tel->temp_C + DRONECAN_KELVIN_OFFSET);      /* temperature (K) */
+    rpm = saturate_int((int32_t)tel->rpm, -131072, 131071);
+    dronecan_pack_int(&p, rpm, 18u);                                      /* rpm (int18) */
+    dronecan_pack_uint(&p, 0u, 7u);                                       /* power_rating_pct = 0 */
+    dronecan_pack_uint(&p, dn->cfg.esc_index, 5u);                        /* esc_index */
+    plen = dronecan_payload_bytelen(&p);
+
+    /* Multi-frame transfer CRC over the serialized payload (signature-seeded), CRC at front. */
+    seed = dronecan_transfer_crc_seed(DRONECAN_ESC_STATUS_SIG_LO, DRONECAN_ESC_STATUS_SIG_HI);
+    crc = dronecan_crc16(p.bytes, plen, seed);
+    buf[0] = (uint16_t)(crc & 0xFFu);
+    buf[1] = (uint16_t)((crc >> 8) & 0xFFu);
+    for (i = 0; i < plen; ++i) {
+        buf[2 + i] = p.bytes[i];
+    }
+    total = (uint16_t)(plen + 2u);
+
+    id = dronecan_msg_id(DRONECAN_PRIO_ESC_STATUS, DRONECAN_DTID_ESC_STATUS, dn->node_id);
+    off = 0u;
+    fidx = 0u;
+    while (off < total) {
+        uint16_t remn = (uint16_t)(total - off);
+        uint16_t chunk = (remn >= 7) ? (uint16_t)7 : remn;
+        dronecan_frame_t *f = &out3[fidx];
+        bool sot = (fidx == 0u);
+        bool eot = ((off + chunk) >= total);
+        bool toggle = ((fidx & 1u) != 0u);
+        f->extended = true;
+        f->id = id;
+        for (i = 0; i < chunk; ++i) {
+            f->data[i] = buf[off + i];
+        }
+        f->data[chunk] = dronecan_tail_encode(sot, eot, toggle, dn->tid_esc_status);
+        f->dlc = (uint16_t)(chunk + 1u);
+        off = (uint16_t)(off + chunk);
+        fidx++;
+    }
+}
+
+int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
+                  dronecan_frame_t *out, int cap)
+{
+    int n = 0;
+
+    if (dn == NULL) {
+        return 0;
+    }
+    if (out == NULL || cap <= 0) {
+        return 0;
+    }
+
+    if (dn->node_id == 0u) {
+        /* Unallocated: DNA requests only (implemented in a later step); no telemetry needed. */
+        return 0;
+    }
+    if (tel == NULL) {
+        return 0; /* allocated but no telemetry -> emit nothing */
+    }
+
+    /* First eligible tick after the node id is known sends immediately. */
+    if (!dn->sched_primed) {
+        dn->last_node_status_ms = now_ms - dn->cfg.node_status_period_ms;
+        dn->last_esc_status_ms  = now_ms - dn->cfg.esc_status_period_ms;
+        dn->sched_primed = true;
+    }
+
+    /* Priority: NodeStatus before esc.Status. */
+    if ((uint32_t)(now_ms - dn->last_node_status_ms) >= dn->cfg.node_status_period_ms) {
+        if (n < cap) {
+            build_node_status(dn, now_ms, tel, &out[n]);
+            n++;
+            dn->last_node_status_ms = now_ms;
+            dn->tid_node_status = (uint16_t)((dn->tid_node_status + 1u) & 0x1Fu);
+        }
+        /* else: no slot -> stays due, timer/tid untouched */
+    }
+
+    if ((uint32_t)(now_ms - dn->last_esc_status_ms) >= dn->cfg.esc_status_period_ms) {
+        if ((cap - n) >= 3) {
+            build_esc_status(dn, tel, &out[n]);
+            n += 3;
+            dn->last_esc_status_ms = now_ms;
+            dn->tid_esc_status = (uint16_t)((dn->tid_esc_status + 1u) & 0x1Fu);
+        }
+        /* else: not enough room for the whole transfer -> stays due */
+    }
+
+    return n;
 }
 
 void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_result_t *res)

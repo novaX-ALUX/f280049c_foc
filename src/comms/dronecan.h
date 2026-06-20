@@ -40,6 +40,13 @@ typedef struct {
     uint32_t seq;            /* esc_command_t.seq, ++ on every accepted RawCommand for us */
     uint16_t zero_run;       /* consecutive zero commands seen before arming */
     bool     armed;          /* zero-frame handshake passed */
+
+    /* TX scheduling */
+    bool     sched_primed;       /* timers seeded so the first eligible tick sends */
+    uint32_t last_node_status_ms;
+    uint32_t last_esc_status_ms;
+    uint16_t tid_node_status;    /* 5-bit transfer ids */
+    uint16_t tid_esc_status;
 } dronecan_t;
 
 void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg);
@@ -47,6 +54,17 @@ void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg);
 /* Feed one received CAN frame. Updates res->command_updated/command for a RawCommand
  * addressed to our esc_index; advances DNA on allocation replies; ignores everything else. */
 void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_result_t *res);
+
+/*
+ * Emit any due TX frames into out[0..cap). Returns the number written.
+ * - A transfer is all-or-nothing: esc.Status needs 3 free slots, single-frame messages need 1;
+ *   if there is no room the transfer stays due (timers / transfer-id are NOT advanced).
+ * - Priority: unallocated -> DNA only; allocated -> NodeStatus before esc.Status.
+ * - tel may be NULL only while unallocated (DNA needs no telemetry); once allocated a NULL tel
+ *   suppresses NodeStatus and Status. Bad args (dn NULL, or out NULL / cap<=0) -> returns 0.
+ */
+int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
+                  dronecan_frame_t *out, int cap);
 
 uint16_t dronecan_node_id(const dronecan_t *dn);
 bool     dronecan_node_id_dirty(const dronecan_t *dn);

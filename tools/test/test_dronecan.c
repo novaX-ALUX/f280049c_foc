@@ -77,6 +77,20 @@ static void arm_node(dronecan_t *dn)
     }
 }
 
+static int frame_eq(const dronecan_frame_t *f, uint32_t id, uint16_t dlc, const uint16_t *data)
+{
+    uint16_t i;
+    if (f->id != id || f->dlc != dlc) {
+        return 0;
+    }
+    for (i = 0; i < dlc; ++i) {
+        if ((f->data[i] & 0xFFu) != (data[i] & 0xFFu)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int main(void)
 {
     /* ---- CAN ID field accessors (build + extract) ---- */
@@ -327,6 +341,129 @@ int main(void)
           dronecan_init(&dn, &c2); CHECK(dn.cfg.esc_index == 0u); /* 20 -> 0 */
           f = frame_from_raw(&GOLD_RAW[1]); dronecan_on_rx(&dn, &f, &r);
           CHECK(r.command_updated); /* index 0 present in a 4-ESC frame */ }
+    }
+
+    /* ---- TX: NodeStatus golden (whole frame) ---- */
+    {
+        uint16_t k;
+        for (k = 0; k < sizeof(GOLD_NS) / sizeof(GOLD_NS[0]); ++k) {
+            const gold_ns_t *g = &GOLD_NS[k];
+            dronecan_t dn;
+            dronecan_cfg_t c;
+            esc_telemetry_t tel;
+            dronecan_frame_t out[4];
+            int n;
+            memset(&c, 0, sizeof c);
+            memset(&tel, 0, sizeof tel);
+            c.node_id = (uint16_t)g->src;
+            dronecan_init(&dn, &c);
+            dn.tid_node_status = (uint16_t)g->tid;
+            tel.hard_fault_bits = (g->health == DRONECAN_HEALTH_ERROR) ? g->vendor : 0u;
+            /* cap=1: only the single-frame NodeStatus fits; Status (needs 3) is skipped. */
+            n = dronecan_tick(&dn, g->uptime * 1000u, &tel, out, 1);
+            CHECK(n == 1);
+            CHECK(frame_eq(&out[0], g->id, g->dlc, g->data));
+        }
+    }
+
+    /* ---- TX: esc.Status golden (3-frame transfer, CRC/tail/toggle/fields) ---- */
+    {
+        uint16_t k;
+        for (k = 0; k < sizeof(GOLD_STATUS) / sizeof(GOLD_STATUS[0]); ++k) {
+            const gold_status_t *g = &GOLD_STATUS[k];
+            dronecan_t dn;
+            dronecan_cfg_t c;
+            esc_telemetry_t tel;
+            dronecan_frame_t out[8];
+            int n;
+            memset(&c, 0, sizeof c);
+            memset(&tel, 0, sizeof tel);
+            c.node_id = (uint16_t)g->src;
+            c.esc_index = g->esc_index;
+            dronecan_init(&dn, &c);
+            dn.tid_esc_status = (uint16_t)g->tid;
+            tel.vbus_V    = g->voltage;
+            tel.current_A = g->current;
+            tel.temp_C    = g->temp_K - DRONECAN_KELVIN_OFFSET;
+            tel.rpm       = (float)g->rpm;
+            tel.hard_fault_bits = 0u;
+            /* cap large: NodeStatus emits first (out[0]), Status at out[1..3]. */
+            n = dronecan_tick(&dn, 0u, &tel, out, 8);
+            CHECK(n == 4);
+            CHECK(frame_eq(&out[1], g->id[0], g->dlc[0], g->data[0]));
+            CHECK(frame_eq(&out[2], g->id[1], g->dlc[1], g->data[1]));
+            CHECK(frame_eq(&out[3], g->id[2], g->dlc[2], g->data[2]));
+        }
+    }
+
+    /* ---- TX scheduling: transfer atomicity, priority, no swallowed period ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        esc_telemetry_t tel;
+        dronecan_frame_t out[8];
+        int n;
+        memset(&c, 0, sizeof c);
+        memset(&tel, 0, sizeof tel);
+        c.node_id = 25u;
+        dronecan_init(&dn, &c);
+
+        /* cap=2: NodeStatus fits (1), Status needs 3 -> skipped, stays due. */
+        n = dronecan_tick(&dn, 1000u, &tel, out, 2);
+        CHECK(n == 1);
+        CHECK(dronecan_id_msg_dtid(out[0].id) == DRONECAN_DTID_NODE_STATUS); /* priority */
+        /* Status still due at the same time -> a roomy tick emits exactly the 3-frame transfer. */
+        n = dronecan_tick(&dn, 1000u, &tel, out, 8);
+        CHECK(n == 3);
+        CHECK(dronecan_id_msg_dtid(out[0].id) == DRONECAN_DTID_ESC_STATUS);
+        {
+            dronecan_tail_t t0 = dronecan_tail_decode(out[0].data[out[0].dlc - 1]);
+            dronecan_tail_t t2 = dronecan_tail_decode(out[2].data[out[2].dlc - 1]);
+            CHECK(t0.sot && !t0.eot && !t0.toggle);
+            CHECK(!t2.sot && t2.eot && !t2.toggle); /* toggle 0->1->0 */
+            CHECK(t0.transfer_id == t2.transfer_id);
+        }
+        /* Nothing due immediately after. */
+        n = dronecan_tick(&dn, 1000u, &tel, out, 8);
+        CHECK(n == 0);
+    }
+
+    /* ---- TX: uint32 now_ms wrap-around still fires on time ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        esc_telemetry_t tel;
+        dronecan_frame_t out[8];
+        int n;
+        memset(&c, 0, sizeof c);
+        memset(&tel, 0, sizeof tel);
+        c.node_id = 25u;
+        dronecan_init(&dn, &c);
+        dn.sched_primed = true;
+        /* last = now - 2000 (wraps below 0): elapsed 2000ms exceeds both periods. */
+        dn.last_node_status_ms = (uint32_t)(0x00000100u - 2000u);
+        dn.last_esc_status_ms  = (uint32_t)(0x00000100u - 2000u);
+        n = dronecan_tick(&dn, 0x00000100u, &tel, out, 8);
+        CHECK(n == 4); /* NodeStatus (period 1000) + Status (period 100) both due across wrap */
+    }
+
+    /* ---- TX bad-arg + DNA-mode + tel==NULL ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        esc_telemetry_t tel;
+        dronecan_frame_t out[8];
+        memset(&c, 0, sizeof c);
+        memset(&tel, 0, sizeof tel);
+        c.node_id = 25u;
+        dronecan_init(&dn, &c);
+        CHECK(dronecan_tick(NULL, 0u, &tel, out, 8) == 0);
+        CHECK(dronecan_tick(&dn, 0u, &tel, NULL, 8) == 0);
+        CHECK(dronecan_tick(&dn, 0u, &tel, out, 0) == 0);
+        CHECK(dronecan_tick(&dn, 0u, NULL, out, 8) == 0); /* allocated + no telemetry */
+        /* DNA mode (node_id 0): no TX in this step. */
+        { dronecan_cfg_t cd; dronecan_t dd; memset(&cd, 0, sizeof cd); cd.node_id = 0u;
+          dronecan_init(&dd, &cd); CHECK(dronecan_tick(&dd, 0u, &tel, out, 8) == 0); }
     }
 
     /* ---- frame sanitize masks high bits and zeros the tail ---- */
