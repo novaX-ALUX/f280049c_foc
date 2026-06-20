@@ -390,6 +390,26 @@ int main(void)
         CHECK(t.state == ESC_STATE_ARMED);
     }
 
+    /* failsafe_brake=true but timeout after a DISARM frame -> must NOT energize: gate-off coast. */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        c.failsafe_brake = true;
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);
+        drive(&st, 0.0f, false, &fb, 0.001f, &o, &t); /* disarm frame -> DISARMED */
+        CHECK(t.state == ESC_STATE_DISARMED);
+        esc_control_step(&st, NULL, &fb, 0.2f, &o, &t); /* now the link ages out */
+        CHECK((t.status_bits & ESC_ST_CMD_TIMEOUT) != 0u);
+        CHECK(!o.enable);                                /* gate stays OFF */
+        CHECK(!o.brake);                                 /* no active brake while disarmed */
+        CHECK((t.status_bits & ESC_ST_FAILSAFE_BRAKE) == 0u);
+        CHECK((t.status_bits & ESC_ST_FAILSAFE_COAST) != 0u);
+        CHECK(t.state == ESC_STATE_DISARMED);
+    }
+
     /* Sustained large park error -> PARK_TRIP latches to FAULT. */
     {
         g_ref_valid = true; g_ref_value = 0.0f; g_seq = 0;

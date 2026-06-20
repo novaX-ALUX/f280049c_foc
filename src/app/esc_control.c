@@ -245,12 +245,13 @@ esc_result_t esc_control_step(esc_control_state_t *st,
         st->iq_ref_A = 0.0f;
     } else if (timed_out) {
         /* Link-loss failsafe: immediate, no slew. Default COAST (gate off, freewheel);
-         * failsafe_brake=true instead actively brakes (gate on, zero refs, brake asserted).
-         * Drop running states to ARMED so recovery is a clean throttle-driven re-entry. */
+         * failsafe_brake=true actively brakes (gate on, zero refs, brake asserted) -- but ONLY
+         * while armed. A timeout after a disarm frame (arm=false) must stay gate-off coast and
+         * never energize the bridge. Drop running states to ARMED for a clean re-entry. */
         mode = ESC_CTRL_TORQUE;
         iq_ref = 0.0f; speed_ref = 0.0f; iq_limit = 0.0f;
         st->iq_ref_A = 0.0f;
-        if (c->failsafe_brake) {
+        if (c->failsafe_brake && arm) {
             enable = true;  brake = true;
         } else {
             enable = false; brake = false;
@@ -267,7 +268,9 @@ esc_result_t esc_control_step(esc_control_state_t *st,
     st->status_bits = 0u;
     if (timed_out) {
         st->status_bits |= ESC_ST_CMD_TIMEOUT;
-        st->status_bits |= c->failsafe_brake ? ESC_ST_FAILSAFE_BRAKE : ESC_ST_FAILSAFE_COAST;
+        /* Report the mode actually emitted: brake only happens while armed. */
+        st->status_bits |= (c->failsafe_brake && arm) ? ESC_ST_FAILSAFE_BRAKE
+                                                       : ESC_ST_FAILSAFE_COAST;
     }
     if (!st->ref.valid) {
         st->status_bits |= ESC_ST_PARK_REF_UNLEARNED;
