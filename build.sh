@@ -11,6 +11,7 @@ BOARD="${BOARD:-esc6288_revA}"
 LAB="${LAB:-is01_intro_hal}"
 MOTOR="${MOTOR:-motor_template}"     # select motor profile (motors/); default is the SDK example motor
 SRC_CHECK="${SRC_CHECK:-0}"          # 1 = cross-compile src/ product modules only (no link), then exit
+CAN_CHECK="${CAN_CHECK:-0}"          # 1 = cross-compile the board CAN bridge + src/comms only (no link), then exit
 
 # Motor selection: MOTOR name -> BUILD_MOTOR_ID (must match config/build_config.h + motors/motor_select.h)
 case "$MOTOR" in
@@ -81,6 +82,12 @@ INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/c
   -I"$HERE/config" -I"$HERE/motors" -I"$BD/drivers/include" -I"$DLIB" -I"$DEV/common/include/" -I"$DEV/headers/include/" -I"$CGT/include"
   -I"$HERE/src/common" -I"$HERE/src/encoder" -I"$HERE/src/app" -I"$HERE/src/comms" )
 
+# Board-extra DEFINES, lifted into the shared section so SRC_CHECK / CAN_CHECK compile with the
+# same configuration as the lab builds (the board source list is still appended later, per-lab).
+case "$BOARD" in
+  launchxl_drv8305evm) DEFINES="$DEFINES --define=DRV8305_SPI" ;;
+esac
+
 # --- SRC_CHECK=1: cross-compile ONLY the src/ product modules (no link), as a 0-warning gate. ---
 # Deliberately placed AFTER CFLAGS/DEFINES/INC are built and BEFORE the LAB=all / single-lab paths,
 # so "SRC_CHECK=1 LAB=all bash build.sh" runs the src check and does NOT fall into the LAB=all loop.
@@ -112,6 +119,35 @@ if [ "$SRC_CHECK" = "1" ]; then
   exit 0
 fi
 
+# --- CAN_CHECK=1: cross-compile the board CAN bridge + src/comms only (no link), as a 0-warning gate. ---
+# Same placement/rationale as SRC_CHECK (priority over LAB). The bridge is driverlib code that lives in
+# boards/ (not src/), so it is NOT host-tested and NOT added to the lab C_SRCS -- this is its compile gate.
+if [ "$CAN_CHECK" = "1" ]; then
+  if [ ! -f "$BD/drivers/source/can_bridge.c" ]; then
+    echo ">>> CAN_CHECK: no can_bridge.c for $BOARD -- nothing to check (CAN pins TODO)."; exit 0
+  fi
+  echo ">>> CAN_CHECK: cross-compiling CAN bridge + src/comms (BOARD=$BOARD), no link ..."
+  mapfile -t chk_files < <( { echo "$BD/drivers/source/can_bridge.c"; find "$HERE/src/comms" -name '*.c'; } | sort )
+  OUT="$HERE/build/_cancheck/${BOARD}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
+  warns=0; fails=0
+  for s in "${chk_files[@]}"; do
+    log="$OUT/$(basename "$s").log"
+    if "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s" >"$log" 2>&1; then
+      n=$(grep -cE 'warning #|warning:' "$log" || true)
+      printf "  CC %-22s warnings=%s\n" "$(basename "$s")" "$n"
+      warns=$((warns + n))
+      [ "$n" -ne 0 ] && cat "$log"
+    else
+      printf "  FAIL %-20s (see %s)\n" "$(basename "$s")" "$log"; cat "$log"
+      fails=$((fails + 1))
+    fi
+  done
+  if [ "$fails" -ne 0 ]; then echo ">>> CAN_CHECK FAILED [$BOARD]: $fails file(s) did not compile."; exit 1; fi
+  if [ "$warns" -ne 0 ]; then echo ">>> CAN_CHECK FAILED [$BOARD]: $warns warning(s) (0-warning gate)."; exit 1; fi
+  echo ">>> CAN_CHECK OK [$BOARD]: ${#chk_files[@]} file(s) cross-compile clean (0 warnings)."
+  exit 0
+fi
+
 # --- LAB=all: smoke-build every supported single-motor lab for this BOARD (excluding the is11 dual-motor lab) ---
 if [ "$LAB" = "all" ]; then
   SELF="$HERE/$(basename "$0")"
@@ -122,7 +158,7 @@ if [ "$LAB" = "all" ]; then
   echo ">>> Smoke-building BOARD=$BOARD MOTOR=$MOTOR, all single-motor labs ..."
   for L in $labs; do
     log="/tmp/buildall_${BOARD}_${MOTOR}_${L}.log"
-    if BOARD="$BOARD" MOTOR="$MOTOR" LAB="$L" SRC_CHECK=0 bash "$SELF" >"$log" 2>&1; then
+    if BOARD="$BOARD" MOTOR="$MOTOR" LAB="$L" SRC_CHECK=0 CAN_CHECK=0 bash "$SELF" >"$log" 2>&1; then
       printf "  OK    %-26s warnings=%s\n" "$L" "$(grep -ci warning "$log" || true)"
       pass=$((pass+1))
     else
@@ -170,8 +206,7 @@ C_SRCS=(
 # Board-specific extra sources/defines: DRV8305EVM needs the SPI register driver
 case "$BOARD" in
   launchxl_drv8305evm)
-    C_SRCS+=( "$BD/drivers/source/drv8305.c" )
-    DEFINES="$DEFINES --define=DRV8305_SPI"
+    C_SRCS+=( "$BD/drivers/source/drv8305.c" )   # DRV8305_SPI define is set in the shared section above
     ;;
 esac
 
