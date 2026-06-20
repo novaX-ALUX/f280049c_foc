@@ -135,7 +135,8 @@ int main(void)
         CHECK_NEAR(st.trip_timer_s, 0.0f, 1e-9f);
     }
 
-    /* Direction hysteresis: once committed, a small opposite error does not flip the latch. */
+    /* Direction hysteresis: once committed, an opposite error beyond hyst neither flips the
+     * latch NOR reverses the commanded speed sign (it drives the long way). */
     {
         prop_park_cfg_t c = base_cfg();
         c.two_blade = false;
@@ -144,9 +145,16 @@ int main(void)
         prop_park_out_t o;
         prop_park_step(&c, &st, 0.30f, 0.0f, 0.0f, true, 0.001f, &o); /* err +0.30 -> latch +1 */
         CHECK_NEAR(st.dir_latch, 1.0f, 1e-9f);
-        /* Now a small negative error (within hyst not satisfied since |err|>hyst keeps latch). */
-        prop_park_step(&c, &st, -0.20f, 0.0f, 0.0f, true, 0.001f, &o); /* |err|=0.20 > hyst 0.125 */
+        CHECK(o.speed_ref_krpm > 0.0f);
+        /* Opposite error, |err|=0.20 > hyst 0.125 -> latch kept, command stays positive. */
+        prop_park_step(&c, &st, -0.20f, 0.0f, 0.0f, true, 0.001f, &o);
         CHECK_NEAR(st.dir_latch, 1.0f, 1e-9f);
+        CHECK(o.err_rev < 0.0f);            /* shortest-path error is negative ... */
+        CHECK(o.speed_ref_krpm > 0.0f);     /* ... but commanded direction stays committed */
+        /* When error returns within hyst, the latch may flip and so may the command sign. */
+        prop_park_step(&c, &st, -0.05f, 0.0f, 0.0f, true, 0.001f, &o); /* |err|=0.05 < hyst */
+        CHECK_NEAR(st.dir_latch, -1.0f, 1e-9f);
+        CHECK(o.speed_ref_krpm < 0.0f);
     }
 
     CHECK_DONE();

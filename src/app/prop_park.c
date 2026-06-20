@@ -85,8 +85,19 @@ void prop_park_step(const prop_park_cfg_t *cfg, prop_park_state_t *st,
         st->dir_latch = desired;
     }
 
-    /* PD -> speed command, clamped. */
+    /* PD -> speed command. */
     float cmd = cfg->kp_krpm_per_rev * err - cfg->kd_krpm_per_revps * vel_revps;
+
+    /* Enforce the committed direction: while the latch is held (reversal blocked because
+     * |err| >= hyst), drive the "long way" in the latched direction rather than reversing.
+     * The latch only differs from sign(err) at the mod-180 boundary; elsewhere this is a no-op. */
+    if (st->dir_latch > 0.0f && cmd < 0.0f) {
+        cmd = -cmd;
+    } else if (st->dir_latch < 0.0f && cmd > 0.0f) {
+        cmd = -cmd;
+    }
+
+    /* Clamp magnitude. */
     if (cmd > cfg->speed_max_krpm) {
         cmd = cfg->speed_max_krpm;
     } else if (cmd < -cfg->speed_max_krpm) {
