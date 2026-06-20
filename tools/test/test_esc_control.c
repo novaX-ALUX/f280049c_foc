@@ -381,6 +381,8 @@ int main(void)
         reach_run(&st, &fb, &o, &t);
         esc_control_step(&st, NULL, &fb, 0.2f, &o, &t);
         CHECK((t.status_bits & ESC_ST_CMD_TIMEOUT) != 0u);
+        CHECK((t.status_bits & ESC_ST_FAILSAFE_BRAKE) != 0u);   /* reported as brake ... */
+        CHECK((t.status_bits & ESC_ST_FAILSAFE_COAST) == 0u);   /* ... not coast */
         CHECK(o.brake);
         CHECK(o.enable);
         CHECK_NEAR(o.iq_ref_A, 0.0f, 1e-9f);

@@ -266,7 +266,8 @@ esc_result_t esc_control_step(esc_control_state_t *st,
     /* --- status bits --- */
     st->status_bits = 0u;
     if (timed_out) {
-        st->status_bits |= ESC_ST_CMD_TIMEOUT | ESC_ST_FAILSAFE_COAST;
+        st->status_bits |= ESC_ST_CMD_TIMEOUT;
+        st->status_bits |= c->failsafe_brake ? ESC_ST_FAILSAFE_BRAKE : ESC_ST_FAILSAFE_COAST;
     }
     if (!st->ref.valid) {
         st->status_bits |= ESC_ST_PARK_REF_UNLEARNED;
