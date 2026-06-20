@@ -1,0 +1,277 @@
+#include "esc_control.h"
+#include <stddef.h>
+#include <math.h>
+
+static void coast_output(esc_output_t *o)
+{
+    o->mode           = ESC_CTRL_TORQUE;
+    o->iq_ref_A       = 0.0f;
+    o->speed_ref_krpm = 0.0f;
+    o->iq_limit_A     = 0.0f;
+    o->enable         = false;
+    o->brake          = false;
+}
+
+static void slew_to(float *cur, float target, float rate, float dt)
+{
+    if (rate <= 0.0f || dt <= 0.0f) {
+        *cur = target;
+        return;
+    }
+    float step = rate * dt;
+    float d = target - *cur;
+    if (d > step) {
+        *cur += step;
+    } else if (d < -step) {
+        *cur -= step;
+    } else {
+        *cur = target;
+    }
+}
+
+void esc_control_init(esc_control_state_t *st, const esc_control_cfg_t *cfg,
+                      park_ref_load_fn load, void *load_ctx)
+{
+    st->cfg             = *cfg;
+    st->state           = ESC_STATE_DISARMED;
+    st->hard_fault_bits = 0;
+    st->status_bits     = 0;
+    st->have_command    = false;
+    st->last_seq        = 0;
+    st->cmd_age_s       = 0.0f;
+    st->last_throttle   = 0.0f;
+    st->last_arm        = false;
+    st->iq_ref_A        = 0.0f;
+    prop_park_reset(&st->park);
+    park_ref_init(&st->ref, &cfg->park_ref, load, load_ctx);
+}
+
+/* True when every latched hard-fault condition has cleared and the operator disarmed. */
+static bool fault_clearable(const esc_control_state_t *st, const esc_feedback_t *fb, bool arm)
+{
+    const esc_control_cfg_t *c = &st->cfg;
+    return (!arm)
+        && !fb->gate_fault
+        && (fb->vbus_V < c->vbus_ov_clr)
+        && (fb->vbus_V > c->vbus_uv_clr)
+        && (fb->temp_C < c->temp_ot_clr)
+        && (fabsf(fb->i_motor_A) < c->oc_clr_A)
+        && !fb->enc_stale;
+}
+
+esc_result_t esc_control_step(esc_control_state_t *st,
+                              const esc_command_t *cmd, const esc_feedback_t *fb,
+                              float dt_s, esc_output_t *out, esc_telemetry_t *tel)
+{
+    /* Defensive: only API misuse returns non-OK. Still produce COAST + valid telemetry. */
+    if (st == NULL || fb == NULL || out == NULL || tel == NULL) {
+        if (out != NULL) {
+            coast_output(out);
+        }
+        if (tel != NULL) {
+            tel->state           = (st != NULL) ? st->state : ESC_STATE_DISARMED;
+            tel->hard_fault_bits = (st != NULL) ? st->hard_fault_bits : 0u;
+            tel->status_bits     = ((st != NULL) ? st->status_bits : 0u) | ESC_ST_FAILSAFE_COAST;
+            tel->rpm             = 0.0f;
+            tel->vbus_V          = 0.0f;
+            tel->current_A       = 0.0f;
+            tel->temp_C          = 0.0f;
+        }
+        return ESC_ERR_BAD_ARG;
+    }
+
+    const esc_control_cfg_t *c = &st->cfg;
+    if (dt_s < 0.0f) {
+        dt_s = 0.0f;
+    }
+
+    /* --- command watchdog (soft, non-latching). seq change-detect only, wrap-safe. --- */
+    if (cmd != NULL) {
+        float t = cmd->throttle;
+        if (t < 0.0f) {
+            t = 0.0f;
+        } else if (t > 1.0f) {
+            t = 1.0f;
+        }
+        st->last_throttle = t;
+        st->last_arm      = cmd->arm;
+        if (!st->have_command) {
+            st->have_command = true;
+            st->last_seq     = cmd->seq;
+            st->cmd_age_s    = 0.0f;
+        } else if (cmd->seq != st->last_seq) {
+            st->last_seq  = cmd->seq;
+            st->cmd_age_s = 0.0f;
+        } else {
+            st->cmd_age_s += dt_s; /* same seq this tick: link aging */
+        }
+    } else if (st->have_command) {
+        st->cmd_age_s += dt_s; /* no frame this tick: keep aging toward timeout */
+    }
+    /* Never-received-first-frame is NOT a timeout. */
+    bool timed_out = st->have_command && (st->cmd_age_s > c->cmd_timeout_s);
+
+    float throttle = st->have_command ? st->last_throttle : 0.0f;
+    bool  arm      = st->have_command ? st->last_arm : false;
+
+    /* --- hard-fault evaluation (latching set; hysteresis clear handled in FAULT). --- */
+    if (fb->vbus_V >= c->vbus_ov_set) {
+        st->hard_fault_bits |= ESC_HF_OVERVOLT;
+    }
+    if (fb->vbus_V <= c->vbus_uv_set) {
+        st->hard_fault_bits |= ESC_HF_UNDERVOLT;
+    }
+    if (fb->temp_C >= c->temp_ot_set) {
+        st->hard_fault_bits |= ESC_HF_OVERTEMP;
+    }
+    if (fabsf(fb->i_motor_A) >= c->oc_set_A) {
+        st->hard_fault_bits |= ESC_HF_OVERCURRENT;
+    }
+    if (fb->gate_fault) {
+        st->hard_fault_bits |= ESC_HF_GATE_FAULT;
+    }
+    /* Encoder stale only matters as a hard fault while we depend on it (closed-loop park). */
+    if ((st->state == ESC_STATE_PARKING || st->state == ESC_STATE_PARKED) && fb->enc_stale) {
+        st->hard_fault_bits |= ESC_HF_ENCODER_STALE;
+    }
+
+    /* Park-reference learning (only progresses while disarmed + still). */
+    park_ref_update(&st->ref, st->state == ESC_STATE_DISARMED, arm, throttle,
+                    fb->speed_est_krpm, fb->enc_vel_revps, fb->enc_valid,
+                    fb->enc_mech_rev, dt_s);
+
+    /* Default outputs for this tick. */
+    esc_ctrl_mode_t mode = ESC_CTRL_TORQUE;
+    float iq_ref = 0.0f, speed_ref = 0.0f, iq_limit = 0.0f;
+    bool  enable = false, brake = false;
+
+    /* A latched hard fault forces FAULT before the switch runs. */
+    if (st->hard_fault_bits != 0u) {
+        st->state = ESC_STATE_FAULT;
+    }
+
+    switch (st->state) {
+    case ESC_STATE_FAULT:
+        st->iq_ref_A = 0.0f;
+        if (fault_clearable(st, fb, arm)) {
+            st->hard_fault_bits = 0u;
+            prop_park_reset(&st->park);
+            st->state = ESC_STATE_DISARMED;
+        }
+        break;
+
+    case ESC_STATE_DISARMED:
+        st->iq_ref_A = 0.0f;
+        if (arm && !timed_out) {
+            st->state = ESC_STATE_ARMED;
+        }
+        break;
+
+    case ESC_STATE_ARMED:
+        enable = true;
+        st->iq_ref_A = 0.0f;
+        if (!arm) {
+            st->state = ESC_STATE_DISARMED;
+        } else if (throttle > c->throttle_run_thresh) {
+            st->state = ESC_STATE_RUN_TORQUE;
+        }
+        break;
+
+    case ESC_STATE_RUN_TORQUE:
+        mode   = ESC_CTRL_TORQUE;
+        enable = true;
+        slew_to(&st->iq_ref_A, throttle * c->iq_max_A, c->iq_slew_A_s, dt_s);
+        iq_ref = st->iq_ref_A;
+        if (!arm) {
+            st->state = ESC_STATE_DISARMED;
+        } else if (c->auto_park_enable
+                   && throttle <= c->throttle_idle_eps
+                   && fabsf(fb->speed_est_krpm) < c->park_engage_speed_krpm
+                   && st->ref.valid) {
+            prop_park_reset(&st->park);
+            st->state = ESC_STATE_PARKING;
+        }
+        break;
+
+    case ESC_STATE_PARKING:
+    case ESC_STATE_PARKED: {
+        mode   = ESC_CTRL_SPEED;
+        enable = true;
+        prop_park_out_t po;
+        prop_park_step(&c->park, &st->park, st->ref.target_rev, fb->enc_mech_rev,
+                       fb->enc_vel_revps, fb->enc_valid, dt_s, &po);
+        speed_ref = po.speed_ref_krpm;
+        iq_limit  = po.iq_limit_A;
+        if (po.trip) {
+            st->hard_fault_bits |= ESC_HF_PARK_TRIP;
+        }
+        if (st->state == ESC_STATE_PARKING && po.settled) {
+            st->state = ESC_STATE_PARKED;
+        }
+        if (!arm) {
+            prop_park_reset(&st->park);
+            st->state = ESC_STATE_DISARMED;
+        } else if (throttle > c->throttle_run_thresh) {
+            prop_park_reset(&st->park);
+            st->state = ESC_STATE_RUN_TORQUE;
+        }
+        break;
+    }
+
+    default:
+        st->state = ESC_STATE_DISARMED;
+        break;
+    }
+
+    /* Post-switch fault enforcement (covers PARK_TRIP / encoder-stale latched this tick). */
+    if (st->hard_fault_bits != 0u) {
+        st->state = ESC_STATE_FAULT;
+        mode = ESC_CTRL_TORQUE;
+        iq_ref = 0.0f; speed_ref = 0.0f; iq_limit = 0.0f;
+        enable = false; brake = false;
+        st->iq_ref_A = 0.0f;
+    } else if (timed_out) {
+        /* COAST: immediate, no slew. Drop running states to ARMED so recovery is a clean
+         * throttle-driven re-entry (not an automatic jump back into RUN). */
+        mode = ESC_CTRL_TORQUE;
+        iq_ref = 0.0f; speed_ref = 0.0f; iq_limit = 0.0f;
+        enable = false; brake = false;
+        st->iq_ref_A = 0.0f;
+        if (st->state == ESC_STATE_RUN_TORQUE
+            || st->state == ESC_STATE_PARKING
+            || st->state == ESC_STATE_PARKED) {
+            prop_park_reset(&st->park);
+            st->state = ESC_STATE_ARMED;
+        }
+    }
+
+    /* --- status bits --- */
+    st->status_bits = 0u;
+    if (timed_out) {
+        st->status_bits |= ESC_ST_CMD_TIMEOUT | ESC_ST_FAILSAFE_COAST;
+    }
+    if (!st->ref.valid) {
+        st->status_bits |= ESC_ST_PARK_REF_UNLEARNED;
+    }
+    if (st->state == ESC_STATE_PARKING || st->state == ESC_STATE_PARKED) {
+        st->status_bits |= ESC_ST_PARK_ACTIVE;
+    }
+
+    /* --- emit --- */
+    out->mode           = mode;
+    out->iq_ref_A       = iq_ref;
+    out->speed_ref_krpm = speed_ref;
+    out->iq_limit_A     = (iq_limit >= 0.0f) ? iq_limit : 0.0f;
+    out->enable         = enable;
+    out->brake          = brake;
+
+    tel->state           = st->state;
+    tel->hard_fault_bits = st->hard_fault_bits;
+    tel->status_bits     = st->status_bits;
+    tel->rpm             = fb->speed_est_krpm * 1000.0f;
+    tel->vbus_V          = fb->vbus_V;
+    tel->current_A       = fb->i_motor_A;
+    tel->temp_C          = fb->temp_C;
+
+    return ESC_OK;
+}
