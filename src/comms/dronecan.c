@@ -36,6 +36,19 @@ void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg)
     dn->last_esc_status_ms  = 0u;
     dn->tid_node_status     = 0u;
     dn->tid_esc_status      = 0u;
+
+    dn->tid_alloc         = 0u;
+    dn->dna_primed        = false;
+    dn->dna_t0            = 0u;
+    dn->dna_req_sent      = false;
+    dn->dna_last_req_ms   = 0u;
+    dn->dna_confirmed_len = 0u;
+    dn->dna_rx_active     = false;
+    dn->dna_rx_src        = 0u;
+    dn->dna_rx_tid        = 0u;
+    dn->dna_rx_toggle     = false;
+    dn->dna_rx_frames     = 0u;
+    dn->dna_rx_len        = 0u;
 }
 
 uint16_t dronecan_node_id(const dronecan_t *dn)      { return dn->node_id; }
@@ -197,6 +210,32 @@ static void build_esc_status(dronecan_t *dn, const esc_telemetry_t *tel, droneca
     }
 }
 
+/* Build the anonymous DNA allocation request for the current stage (next unique-id chunk). */
+static void build_dna_request(dronecan_t *dn, dronecan_frame_t *f)
+{
+    dronecan_payload_t p;
+    uint16_t start = dn->dna_confirmed_len;
+    uint16_t remn = (uint16_t)((start <= 16u) ? (16u - start) : 0u);
+    uint16_t chunk = (remn >= 6u) ? (uint16_t)6 : remn;
+    bool first = (start == 0u);
+    uint16_t plen, disc, i;
+
+    dronecan_payload_init(&p);
+    dronecan_pack_uint(&p, 0u, 7u);                       /* node_id = 0 (requesting) */
+    dronecan_pack_uint(&p, first ? 1u : 0u, 1u);          /* first_part_of_unique_id */
+    dronecan_pack_bytes(&p, &dn->cfg.unique_id[start], chunk);
+    plen = dronecan_payload_bytelen(&p);
+
+    disc = (uint16_t)(dronecan_crc16(p.bytes, plen, 0xFFFFu) & 0x3FFFu);
+    f->extended = true;
+    f->id = dronecan_anon_id(DRONECAN_PRIO_ALLOCATION, DRONECAN_DTID_ALLOCATION, disc);
+    for (i = 0; i < plen; ++i) {
+        f->data[i] = p.bytes[i];
+    }
+    f->data[plen] = dronecan_tail_encode(true, true, false, dn->tid_alloc);
+    f->dlc = (uint16_t)(plen + 1u);
+}
+
 int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
                   dronecan_frame_t *out, int cap)
 {
@@ -210,7 +249,22 @@ int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
     }
 
     if (dn->node_id == 0u) {
-        /* Unallocated: DNA requests only (implemented in a later step); no telemetry needed. */
+        /* Unallocated: emit DNA allocation requests (anonymous). No telemetry needed. */
+        if (!dn->dna_primed) {
+            dn->dna_primed = true;
+            dn->dna_t0 = now_ms;
+        }
+        if ((uint32_t)(now_ms - dn->dna_t0) < dn->cfg.dna_start_delay_ms) {
+            return 0; /* still within the start delay */
+        }
+        if (!dn->dna_req_sent
+            || (uint32_t)(now_ms - dn->dna_last_req_ms) >= dn->cfg.dna_request_period_ms) {
+            build_dna_request(dn, &out[0]);
+            dn->dna_last_req_ms = now_ms;
+            dn->dna_req_sent = true;
+            dn->tid_alloc = (uint16_t)((dn->tid_alloc + 1u) & 0x1Fu);
+            return 1;
+        }
         return 0;
     }
     if (tel == NULL) {
@@ -248,6 +302,85 @@ int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
     return n;
 }
 
+/* Reassemble and process an incoming Allocation transfer (from the allocator). */
+static void handle_allocation(dronecan_t *dn, const dronecan_frame_t *f)
+{
+    dronecan_tail_t tail;
+    uint16_t src, paylen, i, start_byte, n, bp, node_id, uid_len;
+    dronecan_payload_t p;
+
+    if (dn->node_id != 0u || f->dlc < 1u) {
+        return; /* already allocated, or no tail */
+    }
+    src = dronecan_id_source(f->id);
+    if (src == 0u) {
+        return; /* responses come from a real allocator, not anonymous */
+    }
+    tail = dronecan_tail_decode(f->data[f->dlc - 1u]);
+    paylen = (uint16_t)(f->dlc - 1u);
+
+    if (tail.sot) {
+        dn->dna_rx_active = true;
+        dn->dna_rx_src    = src;
+        dn->dna_rx_tid    = tail.transfer_id;
+        dn->dna_rx_len    = 0u;
+        dn->dna_rx_frames = 0u;
+        dn->dna_rx_toggle = false;
+    } else {
+        if (!dn->dna_rx_active || dn->dna_rx_src != src || dn->dna_rx_tid != tail.transfer_id) {
+            return; /* not part of the active transfer */
+        }
+        if (tail.toggle != dn->dna_rx_toggle) {
+            return; /* toggle mismatch -> drop */
+        }
+    }
+
+    for (i = 0; i < paylen && dn->dna_rx_len < DRONECAN_PAYLOAD_MAX; ++i) {
+        dn->dna_rx_buf[dn->dna_rx_len++] = (uint16_t)(f->data[i] & 0xFFu);
+    }
+    dn->dna_rx_frames++;
+    dn->dna_rx_toggle = !dn->dna_rx_toggle;
+
+    if (!tail.eot) {
+        return; /* wait for the rest of the transfer */
+    }
+    dn->dna_rx_active = false;
+
+    /* Multi-frame transfers carry a 2-byte transfer CRC at the front; single frame does not. */
+    start_byte = (dn->dna_rx_frames > 1u) ? 2u : 0u;
+    if (dn->dna_rx_len < (uint16_t)(start_byte + 1u)) {
+        return;
+    }
+
+    dronecan_payload_init(&p);
+    n = 0u;
+    for (i = start_byte; i < dn->dna_rx_len; ++i) {
+        p.bytes[n++] = dn->dna_rx_buf[i];
+    }
+    p.bit_len = (uint16_t)(n * 8u);
+
+    bp = 0u;
+    node_id = (uint16_t)dronecan_unpack_uint(&p, &bp, 7u);
+    (void)dronecan_unpack_uint(&p, &bp, 1u);           /* first_part_of_unique_id */
+    uid_len = (uint16_t)(n - 1u);                      /* remaining bytes = echoed unique id */
+
+    /* The echoed unique id must be a prefix of ours, else this allocation is for another node. */
+    for (i = 0; i < uid_len && i < 16u; ++i) {
+        uint16_t b = (uint16_t)dronecan_unpack_uint(&p, &bp, 8u);
+        if (b != (uint16_t)(dn->cfg.unique_id[i] & 0xFFu)) {
+            return;
+        }
+    }
+
+    if (node_id != 0u) {
+        dn->node_id = node_id;       /* allocated */
+        dn->node_id_dirty = true;    /* product main persists it to NV */
+    } else if (uid_len > dn->dna_confirmed_len) {
+        dn->dna_confirmed_len = uid_len;
+        dn->dna_req_sent = false;    /* echo confirmed -> send the next chunk on the next tick */
+    }
+}
+
 void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_result_t *res)
 {
     uint16_t dtid;
@@ -267,6 +400,7 @@ void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_resul
             return; /* RawCommand must come from a real (non-anonymous) node */
         }
         handle_raw_command(dn, f, res);
+    } else if (dtid == DRONECAN_DTID_ALLOCATION) {
+        handle_allocation(dn, f);
     }
-    /* DNA allocation replies (dtid == DRONECAN_DTID_ALLOCATION) handled in a later step. */
 }

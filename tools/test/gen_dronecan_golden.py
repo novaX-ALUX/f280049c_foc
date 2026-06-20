@@ -170,8 +170,8 @@ def main():
     p("                 uint16_t uid[16]; uint32_t tid; uint32_t id; uint16_t dlc; uint16_t data[8]; } gold_dna_t;")
     dna_cases = [
         ("dna_req_stage1", True, UNIQUE_ID[0:6], 0),
-        ("dna_req_stage2", False, UNIQUE_ID[6:12], 0),
-        ("dna_req_stage3", False, UNIQUE_ID[12:16], 0),
+        ("dna_req_stage2", False, UNIQUE_ID[6:12], 1),
+        ("dna_req_stage3", False, UNIQUE_ID[12:16], 2),
     ]
     p("static const gold_dna_t GOLD_DNA_REQ[] = {")
     for name, first, uid, tid in dna_cases:
@@ -187,17 +187,34 @@ def main():
            fr[0].message_id, len(bs), c_bytes(bs)))
     p("};")
     p("")
-    # Allocation response from the allocator: full uid echoed + assigned node_id.
-    p("typedef struct { const char *name; uint16_t node_id; uint32_t src; uint32_t tid;")
-    p("                 uint32_t id; uint16_t dlc; uint16_t data[8]; uint16_t n_frames; } gold_dna_resp_t;")
+    # Allocator responses (full frame sequences): two echoes then the final assignment.
+    p("typedef struct { const char *name; uint16_t exp_node_id; uint16_t exp_uid_len;")
+    p("                 uint16_t n; uint32_t id[3]; uint16_t dlc[3]; uint16_t data[3][8]; } gold_dna_resp_t;")
+    resp_cases = [
+        ("dna_echo_s1", 0, UNIQUE_ID[0:6], 100, 0),    # echo first 6 bytes (single frame)
+        ("dna_echo_s2", 0, UNIQUE_ID[0:12], 100, 1),   # echo first 12 bytes (multi-frame)
+        ("dna_final",   25, UNIQUE_ID[0:16], 100, 2),  # assign node id 25 (multi-frame)
+    ]
     p("static const gold_dna_resp_t GOLD_DNA_RESP[] = {")
-    resp = uavcan.protocol.dynamic_node_id.Allocation(
-        node_id=25, first_part_of_unique_id=False, unique_id=UNIQUE_ID)
-    fr = frames_of(resp, 100, 0)  # allocator node id 100
-    bs0 = bytes(fr[0].bytes)
-    p("  /* dna_resp_final: node_id=25 full uid, allocator src=100, frames=%u (first frame shown) */" % len(fr))
-    p("  { \"dna_resp_final\", 25, 100, 0, 0x%08X, %u, %s, %u }," %
-      (fr[0].message_id, len(bs0), c_bytes(bs0), len(fr)))
+    for name, node_id, uid, src, tid in resp_cases:
+        msg = uavcan.protocol.dynamic_node_id.Allocation(
+            node_id=node_id, first_part_of_unique_id=(len(uid) <= 6), unique_id=uid)
+        fr = frames_of(msg, src, tid)
+        assert len(fr) <= 3, "%s: %d frames" % (name, len(fr))
+        ids, dlcs, datas = [], [], []
+        for i in range(3):
+            if i < len(fr):
+                bs = bytes(fr[i].bytes)
+                ids.append("0x%08X" % fr[i].message_id)
+                dlcs.append(str(len(bs)))
+                datas.append(c_bytes(bs))
+            else:
+                ids.append("0"); dlcs.append("0"); datas.append("{0}")
+        p("  /* %s: node_id=%u uid_len=%u src=%u tid=%u frames=%u */" %
+          (name, node_id, len(uid), src, tid, len(fr)))
+        p("  { \"%s\", %u, %u, %u, {%s}, {%s}, {%s, %s, %s} }," %
+          (name, node_id, len(uid), len(fr), ", ".join(ids), ", ".join(dlcs),
+           datas[0], datas[1], datas[2]))
     p("};")
     p("")
 

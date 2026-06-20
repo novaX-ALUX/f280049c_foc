@@ -23,6 +23,7 @@ typedef struct {
     uint32_t node_status_period_ms;/* 0 -> default 1000 */
     uint32_t esc_status_period_ms; /* 0 -> default 100 */
     uint32_t dna_request_period_ms;/* 0 -> default 1000 */
+    uint32_t dna_start_delay_ms;   /* delay before the first allocation request */
 } dronecan_cfg_t;
 
 typedef struct {
@@ -47,6 +48,22 @@ typedef struct {
     uint32_t last_esc_status_ms;
     uint16_t tid_node_status;    /* 5-bit transfer ids */
     uint16_t tid_esc_status;
+
+    /* DNA (dynamic node-id allocatee) */
+    uint16_t tid_alloc;
+    bool     dna_primed;         /* dna_t0 captured */
+    uint32_t dna_t0;             /* time of first tick (start-delay origin) */
+    bool     dna_req_sent;       /* a request for the current stage is outstanding */
+    uint32_t dna_last_req_ms;
+    uint16_t dna_confirmed_len;  /* unique-id bytes the allocator has echoed (0/6/12) */
+    /* incoming Allocation reassembly */
+    bool     dna_rx_active;
+    uint16_t dna_rx_src;
+    uint16_t dna_rx_tid;
+    bool     dna_rx_toggle;
+    uint16_t dna_rx_frames;
+    uint16_t dna_rx_len;
+    uint16_t dna_rx_buf[DRONECAN_PAYLOAD_MAX];
 } dronecan_t;
 
 void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg);

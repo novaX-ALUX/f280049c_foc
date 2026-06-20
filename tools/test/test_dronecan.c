@@ -461,9 +461,130 @@ int main(void)
         CHECK(dronecan_tick(&dn, 0u, &tel, NULL, 8) == 0);
         CHECK(dronecan_tick(&dn, 0u, &tel, out, 0) == 0);
         CHECK(dronecan_tick(&dn, 0u, NULL, out, 8) == 0); /* allocated + no telemetry */
-        /* DNA mode (node_id 0): no TX in this step. */
+        /* DNA mode (node_id 0): emits an anonymous allocation request (tel ignored). */
         { dronecan_cfg_t cd; dronecan_t dd; memset(&cd, 0, sizeof cd); cd.node_id = 0u;
-          dronecan_init(&dd, &cd); CHECK(dronecan_tick(&dd, 0u, &tel, out, 8) == 0); }
+          dronecan_init(&dd, &cd);
+          CHECK(dronecan_tick(&dd, 0u, &tel, out, 8) == 1);
+          CHECK(dronecan_id_source(out[0].id) == 0u); /* anonymous */
+          CHECK(dronecan_id_priority(out[0].id) == DRONECAN_PRIO_ALLOCATION); }
+    }
+
+    /* ---- DNA: three-stage allocation, golden requests + responses -> ALLOCATED ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        dronecan_frame_t out[4];
+        dronecan_rx_result_t rr;
+        int n, i;
+        memset(&c, 0, sizeof c);
+        c.node_id = 0u;                 /* dynamic -> DNA */
+        for (i = 0; i < 16; ++i) {
+            c.unique_id[i] = (uint16_t)(0xA0 + i);
+        }
+        dronecan_init(&dn, &c);
+        CHECK(dronecan_node_id(&dn) == 0u);
+
+        /* tick -> stage-1 request (golden). */
+        n = dronecan_tick(&dn, 0u, NULL, out, 4);
+        CHECK(n == 1);
+        CHECK(frame_eq(&out[0], GOLD_DNA_REQ[0].id, GOLD_DNA_REQ[0].dlc, GOLD_DNA_REQ[0].data));
+
+        /* allocator echoes first 6 bytes (single frame) -> advances. */
+        {
+            const gold_dna_resp_t *g = &GOLD_DNA_RESP[0];
+            dronecan_frame_t f = { g->id[0], g->dlc[0], {0}, true };
+            for (i = 0; i < g->dlc[0]; ++i) f.data[i] = g->data[0][i];
+            dronecan_on_rx(&dn, &f, &rr);
+        }
+        CHECK(dn.dna_confirmed_len == 6u);
+
+        /* tick -> stage-2 request (golden, tid 1). */
+        n = dronecan_tick(&dn, 100u, NULL, out, 4);
+        CHECK(n == 1);
+        CHECK(frame_eq(&out[0], GOLD_DNA_REQ[1].id, GOLD_DNA_REQ[1].dlc, GOLD_DNA_REQ[1].data));
+
+        /* allocator echoes first 12 bytes (multi-frame) -> advances. */
+        {
+            const gold_dna_resp_t *g = &GOLD_DNA_RESP[1];
+            uint16_t fr;
+            for (fr = 0; fr < g->n; ++fr) {
+                dronecan_frame_t f = { g->id[fr], g->dlc[fr], {0}, true };
+                for (i = 0; i < g->dlc[fr]; ++i) f.data[i] = g->data[fr][i];
+                dronecan_on_rx(&dn, &f, &rr);
+            }
+        }
+        CHECK(dn.dna_confirmed_len == 12u);
+
+        /* tick -> stage-3 request (golden, tid 2). */
+        n = dronecan_tick(&dn, 200u, NULL, out, 4);
+        CHECK(n == 1);
+        CHECK(frame_eq(&out[0], GOLD_DNA_REQ[2].id, GOLD_DNA_REQ[2].dlc, GOLD_DNA_REQ[2].data));
+
+        /* allocator assigns node id 25 (multi-frame, full uid) -> ALLOCATED + dirty. */
+        {
+            const gold_dna_resp_t *g = &GOLD_DNA_RESP[2];
+            uint16_t fr;
+            for (fr = 0; fr < g->n; ++fr) {
+                dronecan_frame_t f = { g->id[fr], g->dlc[fr], {0}, true };
+                for (i = 0; i < g->dlc[fr]; ++i) f.data[i] = g->data[fr][i];
+                dronecan_on_rx(&dn, &f, &rr);
+            }
+        }
+        CHECK(dronecan_node_id(&dn) == 25u);
+        CHECK(dronecan_node_id_dirty(&dn));
+        dronecan_clear_node_id_dirty(&dn);
+        CHECK(!dronecan_node_id_dirty(&dn));
+
+        /* now allocated -> tick emits NodeStatus (first eligible tick), not DNA. */
+        {
+            esc_telemetry_t tel;
+            memset(&tel, 0, sizeof tel);
+            n = dronecan_tick(&dn, 1000u, &tel, out, 1);
+            CHECK(n == 1);
+            CHECK(dronecan_id_msg_dtid(out[0].id) == DRONECAN_DTID_NODE_STATUS);
+            CHECK(dronecan_id_source(out[0].id) == 25u);
+        }
+    }
+
+    /* ---- DNA: an allocation for a DIFFERENT unique id is ignored ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        dronecan_rx_result_t rr;
+        const gold_dna_resp_t *g = &GOLD_DNA_RESP[2];
+        dronecan_frame_t f;
+        int i;
+        memset(&c, 0, sizeof c);
+        c.node_id = 0u;
+        for (i = 0; i < 16; ++i) c.unique_id[i] = 0x10u + (uint16_t)i; /* not the golden uid */
+        dronecan_init(&dn, &c);
+        { uint16_t fr; for (fr = 0; fr < g->n; ++fr) {
+            dronecan_frame_t ff = { g->id[fr], g->dlc[fr], {0}, true };
+            for (i = 0; i < g->dlc[fr]; ++i) ff.data[i] = g->data[fr][i];
+            dronecan_on_rx(&dn, &ff, &rr);
+        } }
+        (void)f;
+        CHECK(dronecan_node_id(&dn) == 0u); /* not ours -> stays unallocated */
+    }
+
+    /* ---- DNA: start delay holds the first request ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        dronecan_frame_t out[2];
+        int n, i;
+        memset(&c, 0, sizeof c);
+        c.node_id = 0u;
+        c.dna_start_delay_ms = 500u;
+        for (i = 0; i < 16; ++i) c.unique_id[i] = (uint16_t)(0xA0 + i);
+        dronecan_init(&dn, &c);
+        n = dronecan_tick(&dn, 0u, NULL, out, 2);     /* t0 captured, still in delay */
+        CHECK(n == 0);
+        n = dronecan_tick(&dn, 499u, NULL, out, 2);   /* still */
+        CHECK(n == 0);
+        n = dronecan_tick(&dn, 500u, NULL, out, 2);   /* delay elapsed -> request */
+        CHECK(n == 1);
+        CHECK(dronecan_id_discriminator(out[0].id) == dronecan_id_discriminator(GOLD_DNA_REQ[0].id));
     }
 
     /* ---- frame sanitize masks high bits and zeros the tail ---- */
