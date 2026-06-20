@@ -19,9 +19,11 @@
 #define DRONECAN_PRIO_ESC_STATUS      16u
 #define DRONECAN_PRIO_ALLOCATION      30u
 
-/* esc.Status 64-bit data type signature (transfer-CRC seed source), split for the C28x. */
+/* 64-bit data type signatures (transfer-CRC seed source), split for the C28x. */
 #define DRONECAN_ESC_STATUS_SIG_LO    0xA2FBB254u
 #define DRONECAN_ESC_STATUS_SIG_HI    0xA9AF28AEu
+#define DRONECAN_ALLOCATION_SIG_LO    0x20A11D40u
+#define DRONECAN_ALLOCATION_SIG_HI    0x0B2A8126u
 
 /* uavcan.protocol.NodeStatus health / mode */
 #define DRONECAN_HEALTH_OK            0u

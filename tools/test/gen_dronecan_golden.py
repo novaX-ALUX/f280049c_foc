@@ -218,7 +218,7 @@ def main():
     p("};")
     p("")
 
-    sys.stdout.write("\n".join(out) + "\n")
+    sys.stdout.write("\n".join(out).rstrip("\n") + "\n")
 
 
 if __name__ == "__main__":

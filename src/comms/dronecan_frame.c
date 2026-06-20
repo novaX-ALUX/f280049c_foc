@@ -4,8 +4,10 @@
 
 void dronecan_frame_sanitize(dronecan_frame_t *f)
 {
+    /* Byte masking only -- does NOT touch f->extended (frame-type validation is the
+     * RX dispatcher's job; forcing extended here would turn a standard frame into a
+     * DroneCAN candidate). */
     uint16_t i;
-    f->extended = true;
     for (i = 0; i < 8; ++i) {
         f->data[i] = (i < f->dlc) ? (f->data[i] & BYTE_MASK) : 0u;
     }

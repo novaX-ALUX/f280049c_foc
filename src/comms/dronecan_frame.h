@@ -25,7 +25,8 @@ typedef struct {
     bool     extended;  /* always true for DroneCAN */
 } dronecan_frame_t;
 
-/* Mask data[] to 8 bits over [0,dlc) and zero the remainder (TX hygiene / RX sanitation). */
+/* Mask data[] to 8 bits over [0,dlc) and zero the remainder. Byte hygiene only; does NOT
+ * change f->extended (frame-type validation is the RX dispatcher's responsibility). */
 void dronecan_frame_sanitize(dronecan_frame_t *f);
 
 /* ---- CAN ID field accessors ---- */

@@ -546,6 +546,41 @@ int main(void)
         }
     }
 
+    /* ---- RX: dlc > 8 is rejected (no read past data[8]) ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(0u);
+        dronecan_rx_result_t r;
+        dronecan_frame_t f;
+        dronecan_init(&dn, &c);
+        arm_node(&dn);
+        f = make_raw1(5000, 42u);
+        f.dlc = 9u;                 /* malformed */
+        dronecan_on_rx(&dn, &f, &r);
+        CHECK(!r.command_updated);
+    }
+
+    /* ---- DNA: multi-frame response with a corrupted transfer CRC is dropped ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        dronecan_rx_result_t rr;
+        const gold_dna_resp_t *g = &GOLD_DNA_RESP[2]; /* final, multi-frame */
+        uint16_t fr;
+        int i;
+        memset(&c, 0, sizeof c);
+        c.node_id = 0u;
+        for (i = 0; i < 16; ++i) c.unique_id[i] = (uint16_t)(0xA0 + i);
+        dronecan_init(&dn, &c);
+        for (fr = 0; fr < g->n; ++fr) {
+            dronecan_frame_t f = { g->id[fr], g->dlc[fr], {0}, true };
+            for (i = 0; i < g->dlc[fr]; ++i) f.data[i] = g->data[fr][i];
+            if (fr == 0) { f.data[0] ^= 0xFFu; } /* corrupt the transfer CRC */
+            dronecan_on_rx(&dn, &f, &rr);
+        }
+        CHECK(dronecan_node_id(&dn) == 0u); /* bad CRC -> not allocated */
+    }
+
     /* ---- DNA: an allocation for a DIFFERENT unique id is ignored ---- */
     {
         dronecan_t dn;
@@ -591,6 +626,7 @@ int main(void)
     {
         dronecan_frame_t f;
         f.dlc = 3u;
+        f.extended = false;
         f.data[0] = 0x1FFu; f.data[1] = 0xA5u; f.data[2] = 0x2C3u;
         f.data[3] = 0xBEEF; f.data[7] = 0xBEEF;
         dronecan_frame_sanitize(&f);
@@ -599,7 +635,7 @@ int main(void)
         CHECK(f.data[2] == 0xC3u);
         CHECK(f.data[3] == 0u);
         CHECK(f.data[7] == 0u);
-        CHECK(f.extended);
+        CHECK(!f.extended); /* sanitize must not change frame type */
     }
 
     CHECK_DONE();

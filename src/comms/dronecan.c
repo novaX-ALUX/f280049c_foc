@@ -351,6 +351,17 @@ static void handle_allocation(dronecan_t *dn, const dronecan_frame_t *f)
     if (dn->dna_rx_len < (uint16_t)(start_byte + 1u)) {
         return;
     }
+    if (start_byte == 2u) {
+        /* Validate the multi-frame transfer CRC before trusting the payload. */
+        uint16_t seed = dronecan_transfer_crc_seed(DRONECAN_ALLOCATION_SIG_LO,
+                                                   DRONECAN_ALLOCATION_SIG_HI);
+        uint16_t want = (uint16_t)(dn->dna_rx_buf[0] | (dn->dna_rx_buf[1] << 8));
+        uint16_t got  = dronecan_crc16(&dn->dna_rx_buf[2],
+                                       (uint16_t)(dn->dna_rx_len - 2u), seed);
+        if (got != want) {
+            return; /* corrupted / mismatched transfer -> drop */
+        }
+    }
 
     dronecan_payload_init(&p);
     n = 0u;
@@ -389,6 +400,9 @@ void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_resul
 
     if (dn == NULL || f == NULL) {
         return;
+    }
+    if (f->dlc > 8u) {
+        return; /* malformed: more data bytes than a CAN frame can hold */
     }
     if (!f->extended || dronecan_id_is_service(f->id)) {
         return; /* DroneCAN messages are extended, non-service */
