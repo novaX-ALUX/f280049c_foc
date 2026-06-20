@@ -157,5 +157,21 @@ int main(void)
         CHECK(o.speed_ref_krpm < 0.0f);
     }
 
+    /* D-term braking is preserved: with err still in the committed direction, a fast approach
+     * (large same-direction velocity) is allowed to produce an opposite-sign decelerating cmd. */
+    {
+        prop_park_cfg_t c = base_cfg();
+        c.two_blade = false;
+        prop_park_state_t st;
+        prop_park_reset(&st);
+        prop_park_out_t o;
+        prop_park_step(&c, &st, 0.30f, 0.0f, 0.0f, true, 0.001f, &o); /* commit latch +1 */
+        CHECK_NEAR(st.dir_latch, 1.0f, 1e-9f);
+        /* err still +0.30 (latch direction), but vel = +1 rev/s: Kp*err - Kd*vel < 0 -> brake. */
+        prop_park_step(&c, &st, 0.30f, 0.0f, 1.0f, true, 0.001f, &o);
+        CHECK(o.err_rev > 0.0f);            /* error agrees with the committed direction ... */
+        CHECK(o.speed_ref_krpm < 0.0f);     /* ... yet the D term is allowed to decelerate */
+    }
+
     CHECK_DONE();
 }

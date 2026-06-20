@@ -77,24 +77,33 @@ void prop_park_step(const prop_park_cfg_t *cfg, prop_park_state_t *st,
         return;
     }
 
-    /* Direction-latch hysteresis: commit a direction; reverse only when error is small. */
+    /* Direction-latch hysteresis: commit a direction; a positional reversal (sign(err) flips)
+     * is allowed only when the error is small. reversal_blocked marks "error wants the other
+     * way but we keep the committed direction". */
     float desired = (err > 0.0f) ? 1.0f : -1.0f;
+    bool reversal_blocked = false;
     if (st->dir_latch == 0.0f) {
         st->dir_latch = desired;
-    } else if (desired != st->dir_latch && aerr < cfg->hyst_rev) {
-        st->dir_latch = desired;
+    } else if (desired != st->dir_latch) {
+        if (aerr < cfg->hyst_rev) {
+            st->dir_latch = desired;      /* small error -> allow the flip */
+        } else {
+            reversal_blocked = true;      /* keep the committed direction */
+        }
     }
 
     /* PD -> speed command. */
     float cmd = cfg->kp_krpm_per_rev * err - cfg->kd_krpm_per_revps * vel_revps;
 
-    /* Enforce the committed direction: while the latch is held (reversal blocked because
-     * |err| >= hyst), drive the "long way" in the latched direction rather than reversing.
-     * The latch only differs from sign(err) at the mod-180 boundary; elsewhere this is a no-op. */
-    if (st->dir_latch > 0.0f && cmd < 0.0f) {
-        cmd = -cmd;
-    } else if (st->dir_latch < 0.0f && cmd > 0.0f) {
-        cmd = -cmd;
+    /* Force the "long way" ONLY when a positional reversal is blocked. When the error still
+     * agrees with the committed direction, leave cmd alone so the D term can still brake
+     * (a negative cmd that decelerates a fast approach must not be flipped back). */
+    if (reversal_blocked) {
+        if (st->dir_latch > 0.0f && cmd < 0.0f) {
+            cmd = -cmd;
+        } else if (st->dir_latch < 0.0f && cmd > 0.0f) {
+            cmd = -cmd;
+        }
     }
 
     /* Clamp magnitude. */
