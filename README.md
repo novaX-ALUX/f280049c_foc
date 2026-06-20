@@ -71,6 +71,32 @@ Each lab has both EABI and COFF variants — **this project uses EABI**.
 5. Integrate **MT6701 encoder** (sensored FOC; reference SDK `absolute_encoder_boostxl_posmgr` / `servo_drive_with_can/sensored_foc`)
 6. Integrate **CAN / DroneCAN** (reference `servo_drive_with_can`)
 
+## Getting Started (first clone)
+The vendor SDK and the TI compiler are **not** in the repo (gitignored / licensed). After cloning,
+set up two external dependencies, then build to verify:
+
+1. **TI C2000 compiler (CGT).** Install Code Composer Studio (which bundles `ti-cgt-c2000`) or the
+   standalone CGT. `build.sh` auto-detects the newest `ti-cgt-c2000_*` under `~/ti/ccs*`, `~/ti`,
+   `/opt/ti`. If it lives elsewhere, point to it:
+   ```bash
+   export CGT=/path/to/ti-cgt-c2000_<ver>      # e.g. .../ti-cgt-c2000_22.6.0.LTS to pin the validated version
+   ```
+
+2. **MotorControl SDK 6.00.00.00.** Download `C2000Ware_MotorControl_SDK_6_00_00_00` from TI and either
+   place it in the project root (the default location, gitignored) or point to it:
+   ```bash
+   export MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00
+   ```
+
+3. **Verify the build** (no hardware needed — command-line compile + link only):
+   ```bash
+   bash build.sh                                  # default board/motor/lab, should print ">>> DONE: ...is01_intro_hal.out"
+   BOARD=launchxl_drv8305evm LAB=all bash build.sh # regression: all single-motor labs, expect "12 passed, 0 failed"
+   ```
+
+Host: Linux with `bash` (the build is a shell script; toolchain paths assume a Unix layout).
+Outputs go to `build/<BOARD>/<MOTOR>/<LAB>/` (gitignored).
+
 ## Build
 ```bash
 bash build.sh                                           # default: esc6288_revA / is01
