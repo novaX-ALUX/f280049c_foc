@@ -1,6 +1,7 @@
 #include "check.h"
 #include "dronecan_frame.h"
 #include "dronecan_ids.h"
+#include "dronecan.h"
 #include <string.h>
 
 /* Golden frames generated from pydronecan 1.0.27 (the interop anchor). */
@@ -13,6 +14,66 @@ static void pack_raw_cmd(dronecan_payload_t *p, const int16_t *cmd, uint16_t n)
     dronecan_payload_init(p);
     for (i = 0; i < n; ++i) {
         dronecan_pack_int(p, cmd[i], 14u);
+    }
+}
+
+static dronecan_frame_t frame_from_raw(const gold_raw_t *g)
+{
+    dronecan_frame_t f;
+    uint16_t i;
+    f.extended = true;
+    f.id = g->id;
+    f.dlc = g->dlc;
+    for (i = 0; i < 8; ++i) {
+        f.data[i] = (i < g->dlc) ? g->data[i] : 0u;
+    }
+    return f;
+}
+
+/* Build a single-frame RawCommand of `count` identical int14 values (count<=4 -> single frame). */
+static dronecan_frame_t make_rawN(int16_t v, uint16_t count, uint16_t src)
+{
+    dronecan_frame_t f;
+    dronecan_payload_t p;
+    uint16_t blen, i;
+    memset(&f, 0, sizeof f);
+    dronecan_payload_init(&p);
+    for (i = 0; i < count; ++i) {
+        dronecan_pack_int(&p, v, 14u);
+    }
+    blen = dronecan_payload_bytelen(&p);
+    f.extended = true;
+    f.id = dronecan_msg_id(16u, DRONECAN_DTID_RAW_COMMAND, src);
+    for (i = 0; i < blen && i < 7u; ++i) {
+        f.data[i] = p.bytes[i];
+    }
+    f.data[blen] = dronecan_tail_encode(true, true, false, 0u);
+    f.dlc = (uint16_t)(blen + 1u);
+    return f;
+}
+
+/* Single-element RawCommand (addresses esc_index 0 only). */
+static dronecan_frame_t make_raw1(int16_t v, uint16_t src)
+{
+    return make_rawN(v, 1u, src);
+}
+
+static dronecan_cfg_t raw_cfg(uint16_t esc_index)
+{
+    dronecan_cfg_t c;
+    memset(&c, 0, sizeof c);
+    c.esc_index = esc_index;
+    c.node_id = 25u; /* static; DNA not under test here */
+    return c;
+}
+
+static void arm_node(dronecan_t *dn)
+{
+    dronecan_rx_result_t r;
+    int i;
+    for (i = 0; i < 10; ++i) {       /* default arm_zero_frames = 10 */
+        dronecan_frame_t f = make_rawN(0, 4u, 42u); /* 4 elems -> covers esc_index 0..3 */
+        dronecan_on_rx(dn, &f, &r);
     }
 }
 
@@ -128,6 +189,144 @@ int main(void)
         CHECK(dronecan_float32_to_float16(-2.0f) & 0x8000u);
         /* overflow saturates to +Inf (exp all ones, mantissa 0) */
         CHECK(dronecan_float32_to_float16(1.0e9f) == 0x7C00u);
+    }
+
+    /* ---- RX: golden RawCommand decode (esc_index present/OOB) via GOLD_RAW_DEC ---- */
+    {
+        uint16_t k;
+        for (k = 0; k < sizeof(GOLD_RAW_DEC) / sizeof(GOLD_RAW_DEC[0]); ++k) {
+            const gold_raw_dec_t *d = &GOLD_RAW_DEC[k];
+            dronecan_t dn;
+            dronecan_cfg_t c = raw_cfg(d->esc_index);
+            dronecan_rx_result_t r;
+            dronecan_frame_t f;
+            dronecan_init(&dn, &c);
+            arm_node(&dn);                       /* pass handshake so throttle reflects raw14 */
+            f = frame_from_raw(&GOLD_RAW[d->raw_idx]);
+            dronecan_on_rx(&dn, &f, &r);
+            CHECK(r.command_updated == (d->present != 0u));
+            if (d->present) {
+                float expect = (d->raw14 <= 0) ? 0.0f
+                             : ((float)d->raw14 / (float)DRONECAN_RAWCMD_FULLSCALE);
+                CHECK_NEAR(r.command.throttle, expect, 1e-4f);
+                CHECK(r.command.arm);
+            }
+        }
+    }
+
+    /* ---- RX: multi-frame RawCommand (first frame, EOT=0) is skipped ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(0u);
+        dronecan_rx_result_t r;
+        dronecan_frame_t f = frame_from_raw(&GOLD_RAW[2]); /* raw_5esc_multiframe, 2 frames */
+        dronecan_init(&dn, &c);
+        dronecan_on_rx(&dn, &f, &r);
+        CHECK(!r.command_updated);
+    }
+
+    /* ---- RX: arming handshake + reset rule ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(0u);
+        dronecan_rx_result_t r;
+        int i;
+        dronecan_init(&dn, &c);
+
+        /* Nonzero before handshake: accepted (seq++) but arm=false, throttle=0. */
+        dronecan_frame_t nz = make_raw1(5000, 42u);
+        dronecan_on_rx(&dn, &nz, &r);
+        CHECK(r.command_updated);
+        CHECK(!r.command.arm);
+        CHECK_NEAR(r.command.throttle, 0.0f, 1e-9f);
+
+        /* 5 zeros, then a nonzero must RESET the counter (no early arm). */
+        for (i = 0; i < 5; ++i) { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r); }
+        { dronecan_frame_t nz2 = make_raw1(4000, 42u); dronecan_on_rx(&dn, &nz2, &r); CHECK(!r.command.arm); }
+        for (i = 0; i < 9; ++i) { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r); CHECK(!r.command.arm); }
+        { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r); CHECK(r.command.arm); } /* 10th zero */
+
+        /* Now a real command rides through. */
+        { dronecan_frame_t go = make_raw1(8191, 42u); dronecan_on_rx(&dn, &go, &r);
+          CHECK(r.command.arm); CHECK_NEAR(r.command.throttle, 1.0f, 1e-4f); }
+    }
+
+    /* ---- RX: seq increments on every accepted frame, even constant throttle ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(0u);
+        dronecan_rx_result_t r;
+        uint32_t s1, s2;
+        dronecan_init(&dn, &c);
+        arm_node(&dn);
+        { dronecan_frame_t g = make_raw1(3000, 42u); dronecan_on_rx(&dn, &g, &r); s1 = r.command.seq; }
+        { dronecan_frame_t g = make_raw1(3000, 42u); dronecan_on_rx(&dn, &g, &r); s2 = r.command.seq; }
+        CHECK(s2 == s1 + 1u);
+    }
+
+    /* ---- RX: ignore list ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(0u);
+        dronecan_rx_result_t r;
+        dronecan_init(&dn, &c);
+        arm_node(&dn);
+
+        /* non-extended */
+        { dronecan_frame_t f = make_raw1(5000, 42u); f.extended = false;
+          dronecan_on_rx(&dn, &f, &r); CHECK(!r.command_updated); }
+        /* service frame (bit 7 set) */
+        { dronecan_frame_t f = make_raw1(5000, 42u); f.id |= (1u << 7);
+          dronecan_on_rx(&dn, &f, &r); CHECK(!r.command_updated); }
+        /* wrong DTID */
+        { dronecan_frame_t f = make_raw1(5000, 42u);
+          f.id = dronecan_msg_id(16u, DRONECAN_DTID_ESC_STATUS, 42u);
+          dronecan_on_rx(&dn, &f, &r); CHECK(!r.command_updated); }
+        /* anonymous source (0) */
+        { dronecan_frame_t f = make_raw1(5000, 0u);
+          dronecan_on_rx(&dn, &f, &r); CHECK(!r.command_updated); }
+        /* bad tail (toggle set on single frame) */
+        { dronecan_frame_t f = make_raw1(5000, 42u);
+          f.data[f.dlc - 1] = dronecan_tail_encode(true, true, true, 0u);
+          dronecan_on_rx(&dn, &f, &r); CHECK(!r.command_updated); }
+    }
+
+    /* ---- RX: high-byte pollution on data[] is masked before decode ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(1u);
+        dronecan_rx_result_t r, rclean;
+        dronecan_frame_t f, fclean;
+        uint16_t i;
+        dronecan_init(&dn, &c);
+        arm_node(&dn);
+        fclean = frame_from_raw(&GOLD_RAW[1]); /* raw_4esc */
+        dronecan_on_rx(&dn, &fclean, &rclean);
+        dronecan_init(&dn, &c);
+        arm_node(&dn);
+        f = frame_from_raw(&GOLD_RAW[1]);
+        for (i = 0; i < f.dlc; ++i) { f.data[i] |= 0xFF00u; } /* pollute high bits */
+        dronecan_on_rx(&dn, &f, &r);
+        CHECK(r.command_updated && rclean.command_updated);
+        CHECK_NEAR(r.command.throttle, rclean.command.throttle, 1e-6f);
+    }
+
+    /* ---- cfg sanitation: illegal esc_index defaults to 0, arm_zero_frames 0 -> 10 ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        memset(&c, 0, sizeof c);
+        c.esc_index = 31u;        /* illegal */
+        c.arm_zero_frames = 0u;   /* must become 10 */
+        c.node_id = 25u;
+        dronecan_init(&dn, &c);
+        CHECK(dn.cfg.esc_index == 0u);
+        CHECK(dn.cfg.arm_zero_frames == 10u);
+        /* esc_index 20/31/65535 never read OOB: a 4-ESC frame has no component for them */
+        { dronecan_cfg_t c2 = raw_cfg(20u); dronecan_rx_result_t r; dronecan_frame_t f;
+          dronecan_init(&dn, &c2); CHECK(dn.cfg.esc_index == 0u); /* 20 -> 0 */
+          f = frame_from_raw(&GOLD_RAW[1]); dronecan_on_rx(&dn, &f, &r);
+          CHECK(r.command_updated); /* index 0 present in a 4-ESC frame */ }
     }
 
     /* ---- frame sanitize masks high bits and zeros the tail ---- */
