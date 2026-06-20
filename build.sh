@@ -2,6 +2,7 @@
 # Parameterized build: select board (BOARD) x motor (MOTOR) x lab/app (LAB)
 #   BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh
 #   BOARD=launchxl_drv8305evm LAB=all       bash build.sh   # smoke-build every single-motor lab + summary
+#   BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1 bash build.sh  # cross-compile src/ product modules only
 # Board-level HAL/drivers/linker come from boards/$BOARD/; FOC libraries + lab main come from the SDK.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -9,6 +10,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 BOARD="${BOARD:-esc6288_revA}"
 LAB="${LAB:-is01_intro_hal}"
 MOTOR="${MOTOR:-motor_template}"     # select motor profile (motors/); default is the SDK example motor
+SRC_CHECK="${SRC_CHECK:-0}"          # 1 = cross-compile src/ product modules only (no link), then exit
 
 # Motor selection: MOTOR name -> BUILD_MOTOR_ID (must match config/build_config.h + motors/motor_select.h)
 case "$MOTOR" in
@@ -55,37 +57,11 @@ fi
 CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/$CGT_PIN}"  # legacy fallback
 MCSDK="${MCSDK_ROOT:-$HERE/C2000Ware_MotorControl_SDK_6_00_00_00}"
 
-# LAB=all: smoke-build every supported single-motor lab for this BOARD (excluding the is11 dual-motor lab), summarize pass/fail
-if [ "$LAB" = "all" ]; then
-  [ -d "$MCSDK" ] || { echo "MCSDK not found: $MCSDK (set MCSDK_ROOT)"; exit 1; }
-  SELF="$HERE/$(basename "$0")"
-  labs=$(ls "$MCSDK/solutions/common/sensorless_foc/source/"is*.c 2>/dev/null \
-         | xargs -n1 basename | sed 's/\.c$//' | grep -vx 'is11_dual_motor' | sort || true)
-  [ -n "$labs" ] || { echo "No lab sources found (MCSDK=$MCSDK)"; exit 1; }
-  pass=0; fail=0; failed=""
-  echo ">>> Smoke-building BOARD=$BOARD MOTOR=$MOTOR, all single-motor labs ..."
-  for L in $labs; do
-    log="/tmp/buildall_${BOARD}_${MOTOR}_${L}.log"
-    if BOARD="$BOARD" LAB="$L" bash "$SELF" >"$log" 2>&1; then
-      printf "  OK    %-26s warnings=%s\n" "$L" "$(grep -ci warning "$log" || true)"
-      pass=$((pass+1))
-    else
-      printf "  FAIL  %-26s (log %s)\n" "$L" "$log"
-      fail=$((fail+1)); failed="$failed $L"
-    fi
-  done
-  echo ">>> Summary [$BOARD/$MOTOR]: $pass passed, $fail failed.${failed:+  failed:$failed}"
-  if [ "$fail" -ne 0 ]; then exit 1; fi
-  exit 0
-fi
-
+# --- common toolchain paths + compiler flags (shared by SRC_CHECK and the lab builds) ---
 DEV="$MCSDK/c2000ware/device_support/f28004x"
 DLIB="$MCSDK/c2000ware/driverlib/f28004x/driverlib"
 BD="$HERE/boards/$BOARD"
 CL="$CGT/bin/cl2000"
-# Output is laid out per board/motor/lab: build/<BOARD>/<MOTOR>/<LAB>/
-# (MOTOR is a real build dimension; leaving it out of the path lets different motors' .out/.map overwrite each other -> wrong firmware flashed)
-OUT="$HERE/build/${BOARD}/${MOTOR}/${LAB}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
 
 [ -d "$BD" ] || { echo "Unknown board: $BOARD (see boards/)"; exit 1; }
 [ -d "$MCSDK" ] || { echo "MCSDK not found: $MCSDK (set MCSDK_ROOT or place it inside the project)"; exit 1; }
@@ -102,7 +78,67 @@ INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/c
   -I"$MCSDK/libraries/transforms/svgen/include" -I"$MCSDK/libraries/utilities/angle_gen/include" -I"$MCSDK/libraries/utilities/cpu_time/include"
   -I"$MCSDK/libraries/utilities/datalog/include" -I"$MCSDK/libraries/utilities/diagnostic/include" -I"$MCSDK/libraries/utilities/traj/include"
   -I"$MCSDK/libraries/utilities/types/include" -I"$MCSDK/solutions/common/sensorless_foc/include/"
-  -I"$HERE/config" -I"$HERE/motors" -I"$BD/drivers/include" -I"$DLIB" -I"$DEV/common/include/" -I"$DEV/headers/include/" -I"$CGT/include" )
+  -I"$HERE/config" -I"$HERE/motors" -I"$BD/drivers/include" -I"$DLIB" -I"$DEV/common/include/" -I"$DEV/headers/include/" -I"$CGT/include"
+  -I"$HERE/src/common" -I"$HERE/src/encoder" -I"$HERE/src/app" )
+
+# --- SRC_CHECK=1: cross-compile ONLY the src/ product modules (no link), as a 0-warning gate. ---
+# Deliberately placed AFTER CFLAGS/DEFINES/INC are built and BEFORE the LAB=all / single-lab paths,
+# so "SRC_CHECK=1 LAB=all bash build.sh" runs the src check and does NOT fall into the LAB=all loop.
+# cl2000 does not fail on warnings, so we capture each file's compile log and treat any real
+# compiler-warning line (TI "warning #" / GCC-style "warning:") in the LOG as failure.
+if [ "$SRC_CHECK" = "1" ]; then
+  echo ">>> SRC_CHECK: cross-compiling src/ product modules (BOARD=$BOARD MOTOR=$MOTOR), no link ..."
+  mapfile -t src_files < <(find "$HERE/src" -name '*.c' | sort)
+  if [ "${#src_files[@]}" -eq 0 ]; then
+    echo ">>> SRC_CHECK: no .c files under src/ yet -- nothing to cross-compile."; exit 0
+  fi
+  OUT="$HERE/build/_srccheck/${BOARD}/${MOTOR}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
+  warns=0; fails=0
+  for s in "${src_files[@]}"; do
+    log="$OUT/$(basename "$s").log"
+    if "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s" >"$log" 2>&1; then
+      n=$(grep -cE 'warning #|warning:' "$log" || true)
+      printf "  CC %-22s warnings=%s\n" "$(basename "$s")" "$n"
+      warns=$((warns + n))
+      [ "$n" -ne 0 ] && cat "$log"
+    else
+      printf "  FAIL %-20s (see %s)\n" "$(basename "$s")" "$log"; cat "$log"
+      fails=$((fails + 1))
+    fi
+  done
+  if [ "$fails" -ne 0 ]; then echo ">>> SRC_CHECK FAILED [$BOARD/$MOTOR]: $fails file(s) did not compile."; exit 1; fi
+  if [ "$warns" -ne 0 ]; then echo ">>> SRC_CHECK FAILED [$BOARD/$MOTOR]: $warns warning(s) (0-warning gate)."; exit 1; fi
+  echo ">>> SRC_CHECK OK [$BOARD/$MOTOR]: ${#src_files[@]} module(s) cross-compile clean (0 warnings)."
+  exit 0
+fi
+
+# --- LAB=all: smoke-build every supported single-motor lab for this BOARD (excluding the is11 dual-motor lab) ---
+if [ "$LAB" = "all" ]; then
+  SELF="$HERE/$(basename "$0")"
+  labs=$(ls "$MCSDK/solutions/common/sensorless_foc/source/"is*.c 2>/dev/null \
+         | xargs -n1 basename | sed 's/\.c$//' | grep -vx 'is11_dual_motor' | sort || true)
+  [ -n "$labs" ] || { echo "No lab sources found (MCSDK=$MCSDK)"; exit 1; }
+  pass=0; fail=0; failed=""
+  echo ">>> Smoke-building BOARD=$BOARD MOTOR=$MOTOR, all single-motor labs ..."
+  for L in $labs; do
+    log="/tmp/buildall_${BOARD}_${MOTOR}_${L}.log"
+    if BOARD="$BOARD" MOTOR="$MOTOR" LAB="$L" SRC_CHECK=0 bash "$SELF" >"$log" 2>&1; then
+      printf "  OK    %-26s warnings=%s\n" "$L" "$(grep -ci warning "$log" || true)"
+      pass=$((pass+1))
+    else
+      printf "  FAIL  %-26s (log %s)\n" "$L" "$log"
+      fail=$((fail+1)); failed="$failed $L"
+    fi
+  done
+  echo ">>> Summary [$BOARD/$MOTOR]: $pass passed, $fail failed.${failed:+  failed:$failed}"
+  if [ "$fail" -ne 0 ]; then exit 1; fi
+  exit 0
+fi
+
+# --- single-lab build ---
+# Output is laid out per board/motor/lab: build/<BOARD>/<MOTOR>/<LAB>/
+# (MOTOR is a real build dimension; leaving it out of the path lets different motors' .out/.map overwrite each other -> wrong firmware flashed)
+OUT="$HERE/build/${BOARD}/${MOTOR}/${LAB}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
 
 # FOC library sources (SDK) + board HAL (boards/$BOARD) + lab main (SDK common)
 # Note: currently "lab-centric" -- the main always comes from the SDK's sensorless_foc/${LAB}.c (suited to is01~is13 bring-up).
