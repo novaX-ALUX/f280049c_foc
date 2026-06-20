@@ -581,6 +581,37 @@ int main(void)
         CHECK(dronecan_node_id(&dn) == 0u); /* bad CRC -> not allocated */
     }
 
+    /* ---- DNA: multi-frame response whose SOT frame has toggle=1 is dropped ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        dronecan_rx_result_t rr;
+        const gold_dna_resp_t *g = &GOLD_DNA_RESP[2]; /* final, multi-frame */
+        uint16_t fr;
+        int i;
+        memset(&c, 0, sizeof c);
+        c.node_id = 0u;
+        for (i = 0; i < 16; ++i) c.unique_id[i] = (uint16_t)(0xA0 + i);
+        dronecan_init(&dn, &c);
+        for (fr = 0; fr < g->n; ++fr) {
+            dronecan_frame_t f = { g->id[fr], g->dlc[fr], {0}, true };
+            for (i = 0; i < g->dlc[fr]; ++i) f.data[i] = g->data[fr][i];
+            if (fr == 0) { f.data[f.dlc - 1] |= 0x20u; } /* force toggle=1 on the SOT frame */
+            dronecan_on_rx(&dn, &f, &rr);
+        }
+        CHECK(dronecan_node_id(&dn) == 0u); /* bad SOT toggle -> not allocated */
+    }
+
+    /* ---- RX: res == NULL must not crash ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(0u);
+        dronecan_frame_t f = make_raw1(5000, 42u);
+        dronecan_init(&dn, &c);
+        dronecan_on_rx(&dn, &f, NULL); /* strictly non-null contract, but must be defensive */
+        CHECK(1); /* reached here without dereferencing NULL */
+    }
+
     /* ---- DNA: an allocation for a DIFFERENT unique id is ignored ---- */
     {
         dronecan_t dn;

@@ -319,6 +319,10 @@ static void handle_allocation(dronecan_t *dn, const dronecan_frame_t *f)
     tail = dronecan_tail_decode(f->data[f->dlc - 1u]);
     paylen = (uint16_t)(f->dlc - 1u);
 
+    if (tail.sot && tail.toggle) {
+        return; /* first frame must have toggle=0 (tail is not covered by the transfer CRC) */
+    }
+
     if (tail.sot) {
         dn->dna_rx_active = true;
         dn->dna_rx_src    = src;
@@ -396,6 +400,9 @@ void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_resul
 {
     uint16_t dtid;
 
+    if (res == NULL) {
+        return;
+    }
     res->command_updated = false;
 
     if (dn == NULL || f == NULL) {
