@@ -41,7 +41,7 @@ Each lab has both EABI and COFF variants — **this project uses EABI**.
 > See `boards/<board>/PORT_TODO.md` for details.
 
 ## Toolchain (verified on this machine)
-- Compiler: `cl2000` @ `~/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS` (project marks 20.2.2; EABI forward-compatible)
+- Compiler: `cl2000` (TI C2000 CGT). `build.sh` auto-detects a `ti-cgt-c2000_*` install (newest under `~/ti/ccs*`, `/opt/ti`, …); override or pin with `CGT=/path/to/ti-cgt-c2000_<ver>`. Validated with 22.6.0.LTS; EABI is forward-compatible.
 - SDK: `./C2000Ware_MotorControl_SDK_6_00_00_00` (in-project, gitignored)
 - driverlib (f28004x) prebuilt: `.../c2000ware/driverlib/f28004x/driverlib/ccs/Release/driverlib_eabi.lib`
 - **ABI: EABI** (`--abi=eabi`) — modern native ABI; **no need** for the legacy `--abi=coffabi` hack used on F28062F

@@ -27,7 +27,19 @@ case "$BOARD" in
   *) echo "Unknown board BOARD=$BOARD (see boards/ and config/build_config.h)"; exit 1 ;;
 esac
 
-CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS}"
+# TI C2000 compiler (CGT). Priority: $CGT env > auto-detect newest install > legacy default.
+# Auto-detect scans common CCS/standalone-CGT locations so the script is not pinned to one machine.
+if [ -z "${CGT:-}" ]; then
+  for c in $(ls -d \
+        "$HOME"/ti/ccs*/tools/compiler/ti-cgt-c2000_* \
+        "$HOME"/ti/ccs*/ccs/tools/compiler/ti-cgt-c2000_* \
+        "$HOME"/ti/ti-cgt-c2000_* \
+        /opt/ti/ccs*/tools/compiler/ti-cgt-c2000_* \
+        /opt/ti/ti-cgt-c2000_* 2>/dev/null | sort -Vr); do
+    if [ -x "$c/bin/cl2000" ]; then CGT="$c"; break; fi
+  done
+fi
+CGT="${CGT:-/home/patrick/ti/ccs/tools/compiler/ti-cgt-c2000_22.6.0.LTS}"  # legacy fallback
 MCSDK="${MCSDK_ROOT:-$HERE/C2000Ware_MotorControl_SDK_6_00_00_00}"
 
 # LAB=all: smoke-build every supported single-motor lab for this BOARD (excluding the is11 dual-motor lab), summarize pass/fail
@@ -64,7 +76,7 @@ OUT="$HERE/build/${BOARD}/${MOTOR}/${LAB}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "
 
 [ -d "$BD" ] || { echo "Unknown board: $BOARD (see boards/)"; exit 1; }
 [ -d "$MCSDK" ] || { echo "MCSDK not found: $MCSDK (set MCSDK_ROOT or place it inside the project)"; exit 1; }
-[ -x "$CL" ] || { echo "cl2000 not found: $CL (set CGT)"; exit 1; }
+[ -x "$CL" ] || { echo "cl2000 not found: $CL"; echo "  Install the TI C2000 compiler (CCS or standalone CGT), or set CGT=/path/to/ti-cgt-c2000_<ver>"; exit 1; }
 
 CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
 # Board selection: build.sh injects BUILD_BOARD_ID per BOARD; each board.h uses it to self-check against board/build mismatch.
