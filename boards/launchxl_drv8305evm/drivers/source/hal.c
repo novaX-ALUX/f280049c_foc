@@ -930,7 +930,7 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(11, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(11, GPIO_PIN_TYPE_STD);
 
-    // EPWM8B->PWM-DAC3
+    // EPWM7A->PWM-DAC3
     GPIO_setMasterCore(12, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_12_EPWM7A);
     GPIO_setDirectionMode(12, GPIO_DIR_MODE_OUT);
@@ -1093,12 +1093,6 @@ void HAL_setupGPIOs(HAL_Handle handle)
     // TDO
     GPIO_setMasterCore(37, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_37_TDO);
-
-    // GPIO39->Reserve (N/A)
-    GPIO_setMasterCore(39, GPIO_CORE_CPU1);
-    GPIO_setPinConfig(GPIO_39_GPIO39);
-    GPIO_setDirectionMode(39, GPIO_DIR_MODE_IN);
-    GPIO_setPadConfig(39, GPIO_PIN_TYPE_PULLUP);
 
     // GPIO40: unused on launchxl_drv8305evm (header pin4 N/C). nFAULT is GPIO13 here.
     // Left as a benign pulled-up input.

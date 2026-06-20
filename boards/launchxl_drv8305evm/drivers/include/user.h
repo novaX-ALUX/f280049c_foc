@@ -74,6 +74,7 @@ extern "C" {
 //!        BOOSTXL-DRV8305EVM voltage divider full scale.
 //!        TODO: confirm against EVM VSENSE divider (43.2k/4.99k -> ~44.3V).
 #define USER_ADC_FULL_SCALE_VOLTAGE_V         ((float32_t)(44.30))
+#define USER_ADC_FULL_SCALE_DCBUS_VOLTAGE_V   (USER_ADC_FULL_SCALE_VOLTAGE_V)
 
 
 //! \brief Defines the maximum current at the AD converter
@@ -145,7 +146,7 @@ extern "C" {
 //#define USER_PWM_FREQ_kHz          ((float32_t)(10.0))     //10KHz PWM frequency
 //#define USER_PWM_FREQ_kHz          ((float32_t)(12.0))     //12KHz PWM frequency
 //#define USER_PWM_FREQ_kHz          ((float32_t)(15.0))     //15KHz PWM frequency
-#define USER_PWM_FREQ_kHz          ((float32_t)(40.0))     //15KHz PWM frequency
+#define USER_PWM_FREQ_kHz          ((float32_t)(40.0))     //40kHz PWM frequency
 //#define USER_PWM_FREQ_kHz          ((float32_t)(40.0))       //24KHz PWM frequency
 
 //! \brief Defines the Pulse Width Modulation (PWM) period, usec
