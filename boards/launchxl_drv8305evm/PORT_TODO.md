@@ -16,7 +16,7 @@ The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic a
 | U H/L | 40/39 | GPIO10/11 | EPWM6A/6B |
 | V H/L | 38/37 | GPIO8/9   | EPWM5A/5B |
 | W H/L | 36/35 | GPIO4/5   | EPWM3A/3B |
-| Ia/Ib/Ic | 27/28/29 | ADCIN B2/C0/A9 | CMPSS 3/1/6 (authoritative; see Phase 2 table — not 5/3/1) |
+| Ia/Ib/Ic | 27/28/29 | ADCIN B2/C0/A9 | CMPSS 3/1/6 (datasheet Table 6-13; implemented + hw-verified) |
 | Va/Vb/Vc | 23/24/25 | ADCIN A5/B0/C2 | — |
 | Vbus | 26 | ADCIN B1 | — |
 | SPI CLK/STE/SIMO/SOMI | 7/19/15/14 | GPIO56/57/16/17 | SPIA |
@@ -41,15 +41,20 @@ The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic a
   - [x] `BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh` compiles and links cleanly
   - [x] **PGA front-end**: base HAL enables PGA1/3/5 (gain 12) in `HAL_setupPGAs` — that is the DRV8320RS
     on-chip PGA front-end. The DRV8305EVM uses the DRV8305 integrated CSA directly connected to ADC pins, and **B2=PGA3_OF**: enabling PGA3 would drive B2 → incorrect current readings. Changed to **PGA_disable** (on-chip PGA not used on this board).
-  - ⚠️ **CMPSS overcurrent (verified against datasheet; must be wired before high-current is05+)**: the inherited instance 5/3/1 + value=4 is **completely wrong** for this board (that is the PGA path). Authoritative mapping from F28004x datasheet Table 5-1 (direct-connect pins):
-    | Phase | Pin | CMPSS | HP index (mux value) |
+  - [x] **CMPSS overcurrent (fixed + hardware-verified)**: the inherited instance 5/3/1 + value=4 was wrong
+    (value=4 selects `PGAx_OUT`, the on-chip PGA output, which is disabled on this board → a floating node that
+    tripped spuriously whenever PWM was enabled). Authoritative mapping from F280049C datasheet **Table 6-13**
+    ("Analog Pins and Internal Connections", direct-connect pins, on-chip PGA disabled):
+    | Phase | Pin | CMPSS | HP/LP index (mux value) |
     |----|:--:|:--:|:--:|
-    | Ia | B2 | CMPSS3 | HP0 (value 0) |
-    | Ib | C0 | CMPSS1 | HP1 (value 1) |
-    | Ic | A9 | CMPSS6 | HP3 (value 3) |
-    Must also update: `cmpssHandle[]`→{CMPSS3,CMPSS1,CMPSS6}; `ASysCtl_selectCMPHPMux`→corresponding HP values;
-    ePWM X-BAR TRIP mux→ MUX04(CMPSS3)/MUX00(CMPSS1)/MUX10(CMPSS6).
-    **Recommendation**: generate this CMPSS/X-BAR configuration automatically via TI SysConfig (when importing into CCS; see README TODO #1); manual wiring is error-prone, and is01/02/03 do not depend on overcurrent protection, so this precise checklist is left here rather than hard-coded manually.
+    | Ia | B2 | CMPSS3 | 0 |
+    | Ib | C0 | CMPSS1 | 1 |
+    | Ic | A9 | CMPSS6 | 3 |
+    Applied in `HAL_setupCMPSSs` (J1_J2 branch): `cmpssHandle[]`={CMPSS3,CMPSS1,CMPSS6};
+    `ASysCtl_selectCMP{H,L}PMux`→ SELECT_3=0 / SELECT_1=1 / SELECT_6=3; ePWM X-BAR TRIP9→MUX10(CMPSS6),
+    TRIP7→MUX00(CMPSS1), TRIP8→MUX04(CMPSS3). **Verified on hardware** (`tools/flash/diag_oc_latch.js`
+    re-cal test): zero motor current + PWM on no longer asserts `moduleOverCurrent`. Remaining: the real
+    over-current TRIP THRESHOLD (DAC high/low) still needs a load test before relying on it for protection.
   - Note: the WithoutOffsets read function is dead code for this lab (is01/is02 only call WithOffsets), left as-is.
     J5/J6 EPWM1/2/4 pins are still configured but the boosterpack is not connected; harmless.
 - [x] **Phase 3 DRV8305 SPI Driver** (drivers/source/drv8305.c + include/drv8305.h)

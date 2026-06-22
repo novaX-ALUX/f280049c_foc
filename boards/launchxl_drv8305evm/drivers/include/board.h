@@ -65,11 +65,11 @@
 //----------------------------------------------------------------------------
 // Current sensing (low-side shunt -> DRV8305 integrated CSA -> ADC), with CMPSS overcurrent protection
 //   Ia=ADCINB2(CMPSS3/HP0), Ib=ADCINC0(CMPSS1/HP1), Ic=ADCINA9(CMPSS6/HP3)
-//   (Authoritative values from datasheet Table 5-1; note hal.c still uses the inherited CMPSS5/3/1 paths —
-//    overcurrent protection needs to be rewired, see PORT_TODO phase 2 ⚠️)
+//   (Authoritative values from datasheet Table 6-13; hal.c HAL_setupCMPSSs is wired to CMPSS3/1/6 with
+//    these HP/LP mux values, and verified on hardware -- no spurious overcurrent at zero current / PWM on.)
 //----------------------------------------------------------------------------
 #define BOARD_NUM_CURRENT_SENSORS           (3U)
-// (ADC base/channel/SOC and CMPSS instances are configured in hal.c — see PORT_TODO phase 2)
+// (ADC base/channel/SOC and CMPSS instances are configured in hal.c — see PORT_TODO)
 
 //----------------------------------------------------------------------------
 // Voltage sensing: Va=ADCINA5, Vb=ADCINB0, Vc=ADCINC2, Vbus=ADCINB1

@@ -262,9 +262,11 @@ HAL_Handle HAL_init(void *pMemory,const size_t numBytes)
     obj->pgaHandle[2] = PGA1_BASE;        //!< the PGA handle
 
     // initialize CMPSS handle
-    obj->cmpssHandle[0] = CMPSS5_BASE;    //!< the CMPSS handle
-    obj->cmpssHandle[1] = CMPSS3_BASE;    //!< the CMPSS handle
-    obj->cmpssHandle[2] = CMPSS1_BASE;    //!< the CMPSS handle
+    // Overcurrent comparators follow the DRV8305 CSA pins (datasheet Table 6-13, direct connect,
+    // on-chip PGA disabled): ISENSE_A=ADCINB2->CMPSS3, ISENSE_B=ADCINC0->CMPSS1, ISENSE_C=ADCINA9->CMPSS6.
+    obj->cmpssHandle[0] = CMPSS3_BASE;    //!< phase A (ISENSE_A = ADCINB2)
+    obj->cmpssHandle[1] = CMPSS1_BASE;    //!< phase B (ISENSE_B = ADCINC0)
+    obj->cmpssHandle[2] = CMPSS6_BASE;    //!< phase C (ISENSE_C = ADCINA9)
 #endif
 
 #if (BOOST_to_LPD == BOOSTX_to_J5_J6)
@@ -651,24 +653,37 @@ void HAL_setupCMPSSs(HAL_Handle handle)
     // Technical Reference Manual (SPRUI33B), to configure the ePWM X-Bar
     //
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
-    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_1, 4);
-    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_1, 4);
+    // CMPSS positive-input mux: select each comparator's DRV8305 CSA pin DIRECTLY (on-chip PGA
+    // disabled). Per F280049C datasheet Table 6-13 "Analog Pins and Internal Connections":
+    //   C0 -> CMPSS1 HP/LP = 1 ;  B2 -> CMPSS3 HP/LP = 0 ;  A9 -> CMPSS6 HP/LP = 3.
+    // (The previous value=4 selected PGAx_OUT -- the disabled PGA output -- a floating node that
+    //  tripped spuriously whenever PWM was enabled; verified on hardware via tools/flash/diag_oc_latch.js.)
+    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_1, 1);   // CMPSS1 <- ADCINC0 (ISENSE_B)
+    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_1, 1);
 
-    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_3, 4);
-    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_3, 4);
+    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_3, 0);   // CMPSS3 <- ADCINB2 (ISENSE_A)
+    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_3, 0);
 
-    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_5, 4);
-    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_5, 4);
+    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_6, 3);   // CMPSS6 <- ADCINA9 (ISENSE_C)
+    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_6, 3);
 
-    // Configure TRIP9 to be CTRIP1H and CTRIP1L using the ePWM X-BAR
-    XBAR_setEPWMMuxConfig(XBAR_TRIP9, XBAR_EPWM_MUX08_CMPSS5_CTRIPH_OR_L);
-    XBAR_enableEPWMMux(XBAR_TRIP9, XBAR_MUX08);
+    // Clear any stale ePWM X-BAR mux bits on these TRIPs first. On a warm reset / repeated
+    // RAM+JTAG reload the X-BAR enable registers can retain a previous config (e.g. the old
+    // MUX08/CMPSS5 on TRIP9), and enableEPWMMux only ORs in a bit -- so the removed floating
+    // CMPSS5 path would get OR'd back onto TRIP9. Disable all muxes on TRIP7/8/9 before enabling.
+    XBAR_disableEPWMMux(XBAR_TRIP7, 0xFFFFFFFFUL);
+    XBAR_disableEPWMMux(XBAR_TRIP8, 0xFFFFFFFFUL);
+    XBAR_disableEPWMMux(XBAR_TRIP9, 0xFFFFFFFFUL);
 
-    // Configure TRIP7 to be CTRIP1H and CTRIP1L using the ePWM X-BAR
+    // Configure TRIP9 to be CTRIP1H and CTRIP1L using the ePWM X-BAR (CMPSS6 = ISENSE_C)
+    XBAR_setEPWMMuxConfig(XBAR_TRIP9, XBAR_EPWM_MUX10_CMPSS6_CTRIPH_OR_L);
+    XBAR_enableEPWMMux(XBAR_TRIP9, XBAR_MUX10);
+
+    // Configure TRIP7 to be CTRIP1H and CTRIP1L using the ePWM X-BAR (CMPSS1 = ISENSE_B)
     XBAR_setEPWMMuxConfig(XBAR_TRIP7, XBAR_EPWM_MUX00_CMPSS1_CTRIPH_OR_L);
     XBAR_enableEPWMMux(XBAR_TRIP7, XBAR_MUX00);
 
-    // Configure TRIP8 to be CTRIP1H and CTRIP1L using the ePWM X-BAR
+    // Configure TRIP8 to be CTRIP1H and CTRIP1L using the ePWM X-BAR (CMPSS3 = ISENSE_A)
     XBAR_setEPWMMuxConfig(XBAR_TRIP8, XBAR_EPWM_MUX04_CMPSS3_CTRIPH_OR_L);
     XBAR_enableEPWMMux(XBAR_TRIP8, XBAR_MUX04);
 #endif
