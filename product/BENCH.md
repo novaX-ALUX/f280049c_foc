@@ -57,6 +57,16 @@ increments by ~1000), `flagEnableSys` / `flagEnableOffsetCalc` / `flagRunIdentAn
 > DSLite drops a multi-MB trace named `true` in the cwd (its `--log` arg defaults to that string);
 > it is gitignored. Pass `-g /tmp/dslite.log` to redirect it.
 
+> **DSS float gotcha (verified on the bench):** `expression.evaluate("someFloat")` **truncates
+> float32 to an integer** (e.g. `25.3406 -> 25`, `-23.87 -> -23`, `0.0125 -> 0`). Integer fields,
+> pointers, and `&expr` addresses come through fine. So every script reads floats *exactly* by
+> taking `&expr` (an int) and reconstructing the two 16-bit C28x words as IEEE754:
+> `Float.intBitsToFloat(((hi&0xFFFF)<<16)|(lo&0xFFFF))` — see the `getf()` helper in
+> `cal_is02.js` / `verify_stagea.js` / `prepare_drv8305_gate.js`. `tools/flash/diag_precision.js`
+> demonstrates the bug (writes known floats, reads back via both paths). This matters: a naive
+> `VdcBus_V > 5` gate "works" only because `25 > 5`, but any fine reading (offsets, currents, sub-volt
+> trims) is garbage unless read the exact way.
+
 - `ESC_INDEX=<0..19>` — our slot in the RawCommand array (validated in `build.sh`).
 - `NODE_ID=0` — dynamic allocation (DNA). Needs an allocator on the bus (ArduPilot/H7E has one;
   pydronecan can run one). Until allocated, the node sends only DNA requests and — by design —

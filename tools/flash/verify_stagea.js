@@ -5,6 +5,13 @@ importPackage(Packages.java.lang);
 
 function p(s){ System.out.println(s); }
 function ev(s, e){ try { return e.evaluate(s); } catch(err){ return "??("+s+")"; } }
+// DSS expression.evaluate() TRUNCATES float32 to integer (e.g. 25.34 -> 25). For floats, read the
+// address via &expr (ints survive evaluate) and reconstruct the 2-word C28x IEEE754 value exactly.
+function getf(nm){ try {
+    var a = Number(e.evaluate("&"+nm));
+    var w = session.memory.readData(Memory.Page.DATA, a, 16, 2, false);
+    return java.lang.Float.intBitsToFloat(((w[1]&0xFFFF)<<16)|(w[0]&0xFFFF));
+} catch(err){ return NaN; } }
 
 var ccxml = arguments[0];
 var out   = arguments[1];
@@ -39,7 +46,7 @@ p("flagEnableSys             : " + ev("motorVars.flagEnableSys", e) + "   (expec
 p("flagEnableOffsetCalc      : " + ev("motorVars.flagEnableOffsetCalc", e) + "   (expect 0 after cal)");
 p("flagRunIdentAndOnLine     : " + ev("motorVars.flagRunIdentAndOnLine", e) + "   (expect 0, not armed)");
 p("faultUse.all              : " + ev("motorVars.faultUse.all", e) + "   (expect 0)");
-p("VdcBus_V                  : " + ev("motorVars.VdcBus_V", e) + "   (expect ~24)");
+p("VdcBus_V                  : " + getf("motorVars.VdcBus_V").toFixed(4) + "   (expect ~24)");
 p("g_dn.node_id              : " + ev("g_dn.node_id", e) + "   (expect 25, static)");
 p("g_dn.armed                : " + ev("g_dn.armed", e) + "   (expect 0/false)");
 p("================================================");

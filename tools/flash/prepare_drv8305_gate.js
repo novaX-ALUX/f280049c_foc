@@ -39,6 +39,11 @@ importPackage(Packages.java.lang);
 function p(s){ System.out.println(s); }
 function num(s,e){ try { return Number(e.evaluate(s)); } catch(err){ return NaN; } }
 function set(s,v,e){ try { e.evaluate(s+"="+v); return true; } catch(err){ return false; } }
+// DSS expression.evaluate() TRUNCATES float32 to integer (e.g. 25.34 -> 25). Read floats exactly via
+// &expr (ints survive evaluate) + a 2-word C28x IEEE754 reconstruction. getf() needs s/e (set below).
+function getf(nm){ try { var a=Number(e.evaluate("&"+nm));
+    var w=s.memory.readData(Memory.Page.DATA,a,16,2,false);
+    return java.lang.Float.intBitsToFloat(((w[1]&0xFFFF)<<16)|(w[0]&0xFFFF)); } catch(err){ return NaN; } }
 
 var ccxml=arguments[0], out=arguments[1];
 var VBUS_MIN = 5.0;   // sane lower bound: bus present and the ADC is reading something real
@@ -89,7 +94,7 @@ s.target.runAsynch(); Thread.sleep(3500); s.target.halt();
 
 var oc = num("motorVars.flagEnableOffsetCalc",e);
 var fu = num("motorVars.faultUse.all",e);
-var vb = num("motorVars.VdcBus_V",e);
+var vb = getf("motorVars.VdcBus_V");   // float: evaluate() would truncate (25.34 -> 25)
 p("post-cal: flagEnableOffsetCalc=" + oc + " (expect 0)  faultUse.all=" + fu +
   " (expect 0)  VdcBus_V=" + vb + " (expect > " + VBUS_MIN + ")");
 if(oc !== 0)         fail("offset cal did not complete (flagEnableOffsetCalc still 1).");
