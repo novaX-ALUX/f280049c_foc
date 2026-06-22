@@ -173,7 +173,7 @@ if [ "$PRODUCT_CHECK" = "1" ]; then
   fi
   echo ">>> PRODUCT_CHECK: cross-compiling product main + foc_bridge (BOARD=$BOARD MOTOR=$MOTOR), no link ..."
   chk_files=( "$HERE/product/product_main.c" "$HERE/src/app/foc_bridge.c" )
-  OUT="$HERE/build/_productcheck/${BOARD}/${MOTOR}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
+  OUT="$HERE/build/_productcheck/${BOARD}/${MOTOR}/esc${ESC_INDEX}_node${NODE_ID}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
   warns=0; fails=0
   for s in "${chk_files[@]}"; do
     log="$OUT/$(basename "$s").log"
@@ -224,7 +224,9 @@ if [ "$PRODUCT" = "1" ]; then
   if [ ! -f "$BD/drivers/source/can_bridge.c" ]; then
     echo "PRODUCT=1 unsupported for $BOARD: no can_bridge.c (CAN pins TODO). Only launchxl_drv8305evm is wired."; exit 2
   fi
-  OUT="$HERE/build/${BOARD}/${MOTOR}/product"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
+  # Output nests by ESC_INDEX + NODE_ID: both change the firmware's on-bus behavior, so the
+  # DNA and static-id variants (and per-ESC indices) must not overwrite the same product.out.
+  OUT="$HERE/build/${BOARD}/${MOTOR}/product/esc${ESC_INDEX}_node${NODE_ID}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
 
   # FOC library sources (SDK) + board HAL + product main (replaces the SDK ${LAB}.c)
   C_SRCS=(
@@ -266,7 +268,7 @@ if [ "$PRODUCT" = "1" ]; then
   )
   LNK=( "$BD/cmd/f28004x_ram_cpu_is_eabi.cmd" "$DEV/headers/cmd/f28004x_headers_nonbios.cmd" )
 
-  echo ">>> PRODUCT BOARD=$BOARD  MOTOR=$MOTOR  ESC_INDEX=$ESC_INDEX  MCSDK=$MCSDK"
+  echo ">>> PRODUCT BOARD=$BOARD  MOTOR=$MOTOR  ESC_INDEX=$ESC_INDEX  NODE_ID=$NODE_ID  MCSDK=$MCSDK"
   echo ">>> CGT=$($CL --compiler_revision)"
   for s in "${C_SRCS[@]}"; do echo "  CC $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done
   for s in "${ASM_SRCS[@]}"; do echo "  AS $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done

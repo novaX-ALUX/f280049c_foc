@@ -20,7 +20,11 @@ BOARD=launchxl_drv8305evm MOTOR=am_4116_kva ESC_INDEX=0 PRODUCT=1 bash build.sh
 BOARD=launchxl_drv8305evm MOTOR=am_4116_kva ESC_INDEX=0 NODE_ID=25 PRODUCT=1 bash build.sh
 ```
 
-Output: `build/launchxl_drv8305evm/am_4116_kva/product/product.out`.
+Output nests by `ESC_INDEX` + `NODE_ID` so the DNA and static-id variants never overwrite each
+other (avoids loading the wrong variant on the bench):
+`build/launchxl_drv8305evm/am_4116_kva/product/esc<ESC_INDEX>_node<NODE_ID>/product.out`
+— e.g. the two commands above produce `.../product/esc0_node0/product.out` and
+`.../product/esc0_node25/product.out`.
 
 This is a **RAM build** (`_RAM`, `f28004x_ram_cpu_is_eabi.cmd`): load it over JTAG with CCS /
 UniFlash and run from RAM. It does **not** persist across power-cycle (fine for the bench).
