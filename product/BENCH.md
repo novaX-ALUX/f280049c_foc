@@ -116,6 +116,30 @@ Fill in stable bench values; these become the config-finalization commit.
 | `iq_cmd_limit_A` | foc_bridge_cfg | 6.0 | _tbd_ |
 | pole pairs | `USER_MOTOR_NUM_POLE_PAIRS` | per motor | _tbd_ |
 
+## Motor identification (is05) — gate-enable workaround
+
+Motor ID runs the SDK `is05_motor_id` lab, not the product main. On launchxl the lab does **not**
+enable the DRV8305 gate (its `HAL_enableDRV()` is under `#ifdef DRV8320_SPI`, and we build with
+`DRV8305_SPI`), and the function is dead-stripped from the binary, so the power stage is dead and
+ID would read garbage. Bring it up over the debugger (no vendor-source edit):
+
+```bash
+BOARD=launchxl_drv8305evm MOTOR=<motor> LAB=is05_motor_id bash build.sh
+"$DSS" tools/flash/prepare_is05_drv8305.js "$CCXML" \
+   build/launchxl_drv8305evm/<motor>/is05_motor_id/is05_motor_id.out
+```
+
+The script runs the lab to its `while(flagEnableSys==false)` wait, asserts EN_GATE directly
+(`GPBSET<-0x80` → GPIO39 high), then sets `flagEnableSys=true` so offset cal runs. Positive proof
+the gate woke: `faultUse.all` goes **16→0** (gate off → the DRV8305 CSAs float and the CMPSS trips;
+gate on → CSAs live, zero current reads clean). It leaves the target running; drive the actual
+identification (set the is05 run flags, watch convergence) from the CCS watch window. The DRV8305
+runs on power-on defaults (CSA gain 10 V/V — matches the 47.14 A scaling); no SPI VDS/dead-time
+config is applied (fine for low-current ID bring-up).
+
+Per motor, capture the identified `USER_MOTOR_Rs_Ohm`, `Ls_d/Ls_q_H`, `RATED_FLUX_VpHz` and back
+them into `motors/<motor>.h` (the select→is05→backfill→tune workflow).
+
 ## Out of scope here
 esc6288 wiring (schematic / encoder / CMPSS / CAN pins), the is07 speed-PI ISR branch +
 real prop-park, active short brake, Flash persistence of node-id / park-ref, DroneCAN GetSet,
