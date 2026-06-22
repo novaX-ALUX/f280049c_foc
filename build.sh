@@ -16,6 +16,7 @@ PRODUCT_CHECK="${PRODUCT_CHECK:-0}"  # 1 = cross-compile the product main + foc_
 PRODUCT="${PRODUCT:-0}"              # 1 = link the product main (product/product_main.c) instead of an SDK lab
 ESC_INDEX="${ESC_INDEX:-0}"          # this ESC's index into the DroneCAN RawCommand array (0..19)
 NODE_ID="${NODE_ID:-0}"              # DroneCAN node id: 0 = dynamic (DNA); 1..127 = static (skip DNA)
+PWM_PHASE_ORDER="${PWM_PHASE_ORDER:-auto}" # 0=ABC,1=ACB,2=BAC,3=BCA,4=CAB,5=CBA; auto = board default
 
 # ESC_INDEX must be a real integer in 0..19: an out-of-range / non-numeric value injected via
 # --define can silently land as 0 (dronecan_init also defaults illegal indices to 0), which on a
@@ -27,6 +28,15 @@ fi
 # bare CAN tool (no allocator) can drive RawCommand directly without the node staying unallocated.
 if ! [[ "$NODE_ID" =~ ^[0-9]+$ ]] || [ "$NODE_ID" -gt 127 ]; then
   echo "Invalid NODE_ID=$NODE_ID (must be an integer 0..127; 0 = dynamic/DNA)"; exit 1
+fi
+if [ "$PWM_PHASE_ORDER" = "auto" ]; then
+  case "$BOARD" in
+    launchxl_drv8305evm) PWM_PHASE_ORDER=4 ;;  # measured: SVGEN A/B/C -> EPWM5/EPWM3/EPWM6
+    *)                   PWM_PHASE_ORDER=0 ;;
+  esac
+fi
+if ! [[ "$PWM_PHASE_ORDER" =~ ^[0-9]+$ ]] || [ "$PWM_PHASE_ORDER" -gt 5 ]; then
+  echo "Invalid PWM_PHASE_ORDER=$PWM_PHASE_ORDER (must be auto or 0..5; 0=ABC)"; exit 1
 fi
 
 # Motor selection: MOTOR name -> BUILD_MOTOR_ID (must match config/build_config.h + motors/motor_select.h)
@@ -86,7 +96,7 @@ CL="$CGT/bin/cl2000"
 
 CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
 # Board selection: build.sh injects BUILD_BOARD_ID per BOARD; each board.h uses it to self-check against board/build mismatch.
-DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX --define=BUILD_NODE_ID=$NODE_ID"
+DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX --define=BUILD_NODE_ID=$NODE_ID --define=BUILD_PWM_PHASE_ORDER=$PWM_PHASE_ORDER"
 INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/control/pi/include"
   -I"$MCSDK/libraries/control/vsf/include" -I"$MCSDK/libraries/control/fwc/include" -I"$MCSDK/libraries/control/mtpa/include"
   -I"$MCSDK/libraries/control/vs_freq/include" -I"$MCSDK/libraries/filter/filter_fo/include" -I"$MCSDK/libraries/filter/filter_so/include"

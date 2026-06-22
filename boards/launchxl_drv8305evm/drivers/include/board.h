@@ -56,7 +56,9 @@
 #define BOARD_GATE_SPI_STE_GPIO             (57U)   // header pin19
 
 //----------------------------------------------------------------------------
-// Power stage PWM (complementary 6-PWM): U=EPWM6, V=EPWM5, W=EPWM3
+// Power stage PWM (complementary 6-PWM): physical outputs U=EPWM6, V=EPWM5, W=EPWM3.
+// FOC logical phase order is validated as A=EPWM5, B=EPWM3, C=EPWM6; build.sh therefore defaults
+// BUILD_PWM_PHASE_ORDER=4 (SVGEN C/A/B -> physical U/V/W) for this board.
 //----------------------------------------------------------------------------
 #define BOARD_PWM_U_BASE                    EPWM6_BASE   // GPIO10/11, pin40/39
 #define BOARD_PWM_V_BASE                    EPWM5_BASE   // GPIO8/9,   pin38/37

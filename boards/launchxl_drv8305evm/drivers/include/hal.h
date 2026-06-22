@@ -33,6 +33,10 @@
 #ifndef HAL_H
 #define HAL_H
 
+#ifndef BUILD_PWM_PHASE_ORDER
+#define BUILD_PWM_PHASE_ORDER 4
+#endif
+
 //! \file   solutions/boostxl_drv8320rs/f28004x/drivers/hal.h
 //! \brief  Contains public interface to various functions related
 //!         to the HAL object
@@ -1089,6 +1093,26 @@ HAL_updateCMPSSBlankingWindow(HAL_Obj *obj, const uint16_t pwmCnt,
 }
 
 
+static inline uint16_t
+HAL_getPWMPhaseSourceIndex(const uint16_t pwmCnt)
+{
+#if (BUILD_PWM_PHASE_ORDER == 0)      // ABC
+    return pwmCnt;
+#elif (BUILD_PWM_PHASE_ORDER == 1)    // ACB
+    return (pwmCnt == 1U) ? 2U : ((pwmCnt == 2U) ? 1U : 0U);
+#elif (BUILD_PWM_PHASE_ORDER == 2)    // BAC
+    return (pwmCnt == 0U) ? 1U : ((pwmCnt == 1U) ? 0U : 2U);
+#elif (BUILD_PWM_PHASE_ORDER == 3)    // BCA
+    return (pwmCnt == 0U) ? 1U : ((pwmCnt == 1U) ? 2U : 0U);
+#elif (BUILD_PWM_PHASE_ORDER == 4)    // CAB
+    return (pwmCnt == 0U) ? 2U : ((pwmCnt == 1U) ? 0U : 1U);
+#elif (BUILD_PWM_PHASE_ORDER == 5)    // CBA
+    return (pwmCnt == 0U) ? 2U : ((pwmCnt == 1U) ? 1U : 0U);
+#else
+#error "BUILD_PWM_PHASE_ORDER must be 0..5"
+#endif
+}
+
 //! \brief     Writes PWM data to the PWM comparators for motor control
 //! \param[in] handle    The hardware abstraction layer (HAL) handle
 //! \param[in] pPWMData  The pointer to the PWM data
@@ -1100,11 +1124,13 @@ HAL_writePWMData(HAL_Handle handle, HAL_PWMData_t *pPWMData)
 
     for(pwmCnt=0;pwmCnt<3;pwmCnt++)
     {
+        uint16_t srcIdx = HAL_getPWMPhaseSourceIndex(pwmCnt);
+
         // compute the value
         float32_t period =
                 (float32_t)(EPWM_getTimeBasePeriod(obj->pwmHandle[pwmCnt]));
 
-        float32_t V_pu = -pPWMData->Vabc_pu.value[pwmCnt];
+        float32_t V_pu = -pPWMData->Vabc_pu.value[srcIdx];
         float32_t V_sat_pu = MATH_sat(V_pu, 0.5, -0.5);
         float32_t V_sat_dc_pu = V_sat_pu + 0.5;
         int16_t pwmValue  = (int16_t)(V_sat_dc_pu * period);
