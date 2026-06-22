@@ -21,4 +21,13 @@
 #define BUILD_MOTOR_ID                   BUILD_MOTOR_ID_TEMPLATE
 #endif
 
+// ESC index source of truth: build.sh injects -DBUILD_ESC_INDEX via ESC_INDEX= (validated 0..19 there);
+// defaults to 0 if not injected. This is the product main's index into the DroneCAN RawCommand array.
+#ifndef BUILD_ESC_INDEX
+#define BUILD_ESC_INDEX                  (0)
+#endif
+#if (BUILD_ESC_INDEX < 0) || (BUILD_ESC_INDEX > 19)
+#error "BUILD_ESC_INDEX out of range (must be 0..19, the DroneCAN esc_index space)"
+#endif
+
 #endif

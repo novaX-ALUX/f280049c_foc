@@ -12,6 +12,16 @@ LAB="${LAB:-is01_intro_hal}"
 MOTOR="${MOTOR:-motor_template}"     # select motor profile (motors/); default is the SDK example motor
 SRC_CHECK="${SRC_CHECK:-0}"          # 1 = cross-compile src/ product modules only (no link), then exit
 CAN_CHECK="${CAN_CHECK:-0}"          # 1 = cross-compile the board CAN bridge + src/comms only (no link), then exit
+PRODUCT_CHECK="${PRODUCT_CHECK:-0}"  # 1 = cross-compile the product main + foc_bridge only (no link), then exit
+PRODUCT="${PRODUCT:-0}"              # 1 = link the product main (product/product_main.c) instead of an SDK lab
+ESC_INDEX="${ESC_INDEX:-0}"          # this ESC's index into the DroneCAN RawCommand array (0..19)
+
+# ESC_INDEX must be a real integer in 0..19: an out-of-range / non-numeric value injected via
+# --define can silently land as 0 (dronecan_init also defaults illegal indices to 0), which on a
+# 4-in-1 would drive the wrong motor as index 0. Reject it here, before it reaches the compiler.
+if ! [[ "$ESC_INDEX" =~ ^[0-9]+$ ]] || [ "$ESC_INDEX" -gt 19 ]; then
+  echo "Invalid ESC_INDEX=$ESC_INDEX (must be an integer 0..19)"; exit 1
+fi
 
 # Motor selection: MOTOR name -> BUILD_MOTOR_ID (must match config/build_config.h + motors/motor_select.h)
 case "$MOTOR" in
@@ -70,7 +80,7 @@ CL="$CGT/bin/cl2000"
 
 CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
 # Board selection: build.sh injects BUILD_BOARD_ID per BOARD; each board.h uses it to self-check against board/build mismatch.
-DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID"
+DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX"
 INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/control/pi/include"
   -I"$MCSDK/libraries/control/vsf/include" -I"$MCSDK/libraries/control/fwc/include" -I"$MCSDK/libraries/control/mtpa/include"
   -I"$MCSDK/libraries/control/vs_freq/include" -I"$MCSDK/libraries/filter/filter_fo/include" -I"$MCSDK/libraries/filter/filter_so/include"
@@ -148,6 +158,35 @@ if [ "$CAN_CHECK" = "1" ]; then
   exit 0
 fi
 
+# --- PRODUCT_CHECK=1: cross-compile the product main + foc_bridge only (no link), 0-warning gate. ---
+# Compile-only gate for the SDK-coupled product glue (product/product_main.c), which is NOT host-tested.
+# Mirrors CAN_CHECK: it needs the board CAN bridge (can_bridge.h/.c), so boards without it friendly-skip.
+if [ "$PRODUCT_CHECK" = "1" ]; then
+  if [ ! -f "$BD/drivers/source/can_bridge.c" ]; then
+    echo ">>> PRODUCT_CHECK: no can_bridge.c for $BOARD -- product main not portable yet (CAN pins TODO)."; exit 0
+  fi
+  echo ">>> PRODUCT_CHECK: cross-compiling product main + foc_bridge (BOARD=$BOARD MOTOR=$MOTOR), no link ..."
+  chk_files=( "$HERE/product/product_main.c" "$HERE/src/app/foc_bridge.c" )
+  OUT="$HERE/build/_productcheck/${BOARD}/${MOTOR}"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
+  warns=0; fails=0
+  for s in "${chk_files[@]}"; do
+    log="$OUT/$(basename "$s").log"
+    if "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s" >"$log" 2>&1; then
+      n=$(grep -cE 'warning #|warning:' "$log" || true)
+      printf "  CC %-22s warnings=%s\n" "$(basename "$s")" "$n"
+      warns=$((warns + n))
+      [ "$n" -ne 0 ] && cat "$log"
+    else
+      printf "  FAIL %-20s (see %s)\n" "$(basename "$s")" "$log"; cat "$log"
+      fails=$((fails + 1))
+    fi
+  done
+  if [ "$fails" -ne 0 ]; then echo ">>> PRODUCT_CHECK FAILED [$BOARD]: $fails file(s) did not compile."; exit 1; fi
+  if [ "$warns" -ne 0 ]; then echo ">>> PRODUCT_CHECK FAILED [$BOARD]: $warns warning(s) (0-warning gate)."; exit 1; fi
+  echo ">>> PRODUCT_CHECK OK [$BOARD]: ${#chk_files[@]} file(s) cross-compile clean (0 warnings)."
+  exit 0
+fi
+
 # --- LAB=all: smoke-build every supported single-motor lab for this BOARD (excluding the is11 dual-motor lab) ---
 if [ "$LAB" = "all" ]; then
   SELF="$HERE/$(basename "$0")"
@@ -158,7 +197,7 @@ if [ "$LAB" = "all" ]; then
   echo ">>> Smoke-building BOARD=$BOARD MOTOR=$MOTOR, all single-motor labs ..."
   for L in $labs; do
     log="/tmp/buildall_${BOARD}_${MOTOR}_${L}.log"
-    if BOARD="$BOARD" MOTOR="$MOTOR" LAB="$L" SRC_CHECK=0 CAN_CHECK=0 bash "$SELF" >"$log" 2>&1; then
+    if BOARD="$BOARD" MOTOR="$MOTOR" LAB="$L" SRC_CHECK=0 CAN_CHECK=0 PRODUCT=0 PRODUCT_CHECK=0 bash "$SELF" >"$log" 2>&1; then
       printf "  OK    %-26s warnings=%s\n" "$L" "$(grep -ci warning "$log" || true)"
       pass=$((pass+1))
     else
@@ -168,6 +207,68 @@ if [ "$LAB" = "all" ]; then
   done
   echo ">>> Summary [$BOARD/$MOTOR]: $pass passed, $fail failed.${failed:+  failed:$failed}"
   if [ "$fail" -ne 0 ]; then exit 1; fi
+  exit 0
+fi
+
+# --- PRODUCT=1: link the product main (product/product_main.c) instead of an SDK lab ---
+# Same FOC libs / board HAL / device + linker setup as a lab build, but the main comes from
+# product/product_main.c and the pure src/ product layer + the board CAN bridge are linked in.
+# Independent of LAB and the lab C_SRCS, so LAB=all stays a pure SDK-lab regression.
+if [ "$PRODUCT" = "1" ]; then
+  if [ ! -f "$BD/drivers/source/can_bridge.c" ]; then
+    echo "PRODUCT=1 unsupported for $BOARD: no can_bridge.c (CAN pins TODO). Only launchxl_drv8305evm is wired."; exit 2
+  fi
+  OUT="$HERE/build/${BOARD}/${MOTOR}/product"; rm -rf "$OUT"; mkdir -p "$OUT"; cd "$OUT"
+
+  # FOC library sources (SDK) + board HAL + product main (replaces the SDK ${LAB}.c)
+  C_SRCS=(
+    "$DEV/headers/source/f28004x_globalvariabledefs.c"
+    "$MCSDK/libraries/observers/est/source/user.c"
+    "$MCSDK/libraries/control/ctrl/source/ctrl.c"
+    "$MCSDK/libraries/filter/filter_fo/source/filter_fo.c"
+    "$MCSDK/libraries/control/pi/source/pi.c"
+    "$MCSDK/libraries/control/vs_freq/source/vs_freq.c"
+    "$MCSDK/libraries/control/vsf/source/vsf.c"
+    "$MCSDK/libraries/control/fwc/source/fwc.c"
+    "$MCSDK/libraries/control/mtpa/source/mtpa.c"
+    "$MCSDK/libraries/transforms/clarke/source/clarke.c"
+    "$MCSDK/libraries/transforms/park/source/park.c"
+    "$MCSDK/libraries/transforms/ipark/source/ipark.c"
+    "$MCSDK/libraries/transforms/svgen/source/svgen.c"
+    "$MCSDK/libraries/transforms/svgen/source/svgen_current.c"
+    "$MCSDK/libraries/utilities/angle_gen/source/angle_gen.c"
+    "$MCSDK/libraries/utilities/traj/source/traj.c"
+    "$MCSDK/libraries/utilities/datalog/source/datalog.c"
+    "$MCSDK/libraries/utilities/cpu_time/source/cpu_time.c"
+    "$BD/drivers/source/gate_driver.c"
+    "$BD/drivers/source/hal.c"
+    "$HERE/product/product_main.c"
+  )
+  # board-extra source (DRV8305 SPI driver), same as the lab build
+  case "$BOARD" in
+    launchxl_drv8305evm) C_SRCS+=( "$BD/drivers/source/drv8305.c" ) ;;
+  esac
+  # product layer: pure src/ modules + the board CAN bridge
+  mapfile -t prod_srcs < <(find "$HERE/src/app" "$HERE/src/comms" "$HERE/src/encoder" "$HERE/src/common" -name '*.c' | sort)
+  C_SRCS+=( "${prod_srcs[@]}" "$BD/drivers/source/can_bridge.c" )
+
+  ASM_SRCS=( "$DEV/common/source/f28004x_codestartbranch.asm" )
+  LIBS=(
+    "$DLIB/ccs/Release/driverlib_eabi.lib"
+    "$MCSDK/libraries/observers/fast/lib/f28004x/f28004x_fast_rom_symbols_fpu32_eabi.lib"
+    "$MCSDK/libraries/observers/mpid/lib/fluxHF_eabi.lib"
+  )
+  LNK=( "$BD/cmd/f28004x_ram_cpu_is_eabi.cmd" "$DEV/headers/cmd/f28004x_headers_nonbios.cmd" )
+
+  echo ">>> PRODUCT BOARD=$BOARD  MOTOR=$MOTOR  ESC_INDEX=$ESC_INDEX  MCSDK=$MCSDK"
+  echo ">>> CGT=$($CL --compiler_revision)"
+  for s in "${C_SRCS[@]}"; do echo "  CC $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done
+  for s in "${ASM_SRCS[@]}"; do echo "  AS $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done
+  echo ">>> Linking product.out ..."
+  "$CL" --abi=eabi -z --reread_libs -m "product.map" --entry_point=code_start --stack_size=0x300 \
+    -i"$DLIB/math/FPUfastRTS/c28/lib" -i"$CGT/lib" \
+    *.obj "${LIBS[@]}" "${LNK[@]}" -llibc.a -w -o "product.out"
+  echo ">>> DONE: $OUT/product.out"; ls -la "product.out"
   exit 0
 fi
 
