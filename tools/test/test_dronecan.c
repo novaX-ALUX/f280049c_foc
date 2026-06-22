@@ -265,6 +265,36 @@ int main(void)
           CHECK(r.command.arm); CHECK_NEAR(r.command.throttle, 1.0f, 1e-4f); }
     }
 
+    /* ---- RX: unallocated node (node_id==0, DNA pending) must drop RawCommand entirely ---- */
+    {
+        dronecan_t dn;
+        dronecan_cfg_t c = raw_cfg(0u);
+        dronecan_rx_result_t r;
+        int i;
+        c.node_id = 0u;            /* DNA mode: not yet allocated */
+        dronecan_init(&dn, &c);
+        CHECK(dn.node_id == 0u);
+
+        /* Spam 12 zeros + a nonzero: none may arm, advance the zero-run counter, or bump seq. */
+        for (i = 0; i < 12; ++i) {
+            dronecan_frame_t z = make_raw1(0, 42u);
+            dronecan_on_rx(&dn, &z, &r);
+            CHECK(!r.command_updated);
+        }
+        { dronecan_frame_t nz = make_raw1(5000, 42u); dronecan_on_rx(&dn, &nz, &r);
+          CHECK(!r.command_updated); }
+        CHECK(!dn.armed);
+        CHECK(dn.zero_run == 0u);
+        CHECK(dn.seq == 0u);
+
+        /* Allocation completes -> arming must start FRESH: exactly arm_zero_frames zeros to arm. */
+        dn.node_id = 25u;
+        for (i = 0; i < 9; ++i) { dronecan_frame_t z = make_raw1(0, 42u);
+          dronecan_on_rx(&dn, &z, &r); CHECK(r.command_updated); CHECK(!r.command.arm); }
+        { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r);
+          CHECK(r.command.arm); }  /* 10th post-allocation zero arms */
+    }
+
     /* ---- RX: seq increments on every accepted frame, even constant throttle ---- */
     {
         dronecan_t dn;

@@ -417,6 +417,12 @@ void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_resul
 
     dtid = dronecan_id_msg_dtid(f->id);
     if (dtid == DRONECAN_DTID_RAW_COMMAND) {
+        if (dn->node_id == 0u) {
+            /* Not yet allocated: we cannot publish NodeStatus/esc.Status, so we must not
+             * arm or drive either. Drop RawCommand entirely -- do NOT advance the zero-frame
+             * handshake or seq -- so arming starts fresh once DNA assigns a node id. */
+            return;
+        }
         if (dronecan_id_source(f->id) == 0u) {
             return; /* RawCommand must come from a real (non-anonymous) node */
         }
