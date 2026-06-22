@@ -116,26 +116,33 @@ Fill in stable bench values; these become the config-finalization commit.
 | `iq_cmd_limit_A` | foc_bridge_cfg | 6.0 | _tbd_ |
 | pole pairs | `USER_MOTOR_NUM_POLE_PAIRS` | per motor | _tbd_ |
 
-## Motor identification (is05) — gate-enable workaround
+## Power labs (is02+) — DRV8305 gate-enable workaround
 
-Motor ID runs the SDK `is05_motor_id` lab, not the product main. On launchxl the lab does **not**
-enable the DRV8305 gate (its `HAL_enableDRV()` is under `#ifdef DRV8320_SPI`, and we build with
-`DRV8305_SPI`), and the function is dead-stripped from the binary, so the power stage is dead and
-ID would read garbage. Bring it up over the debugger (no vendor-source edit):
+Every SDK sensorless lab that drives the power stage (is02 cal, is03 hardware test, is04 signal
+chain, is05 motor ID, is06+ control) calls `HAL_enableDRV()` only under `#ifdef DRV8320_SPI`, but
+launchxl builds with `DRV8305_SPI`, so the gate is never enabled (and the function is dead-stripped
+from the binary). The power stage is dead -> labs read garbage. Bring up the gate over the debugger
+(no vendor-source edit) with the lab-agnostic prep script:
 
 ```bash
-BOARD=launchxl_drv8305evm MOTOR=<motor> LAB=is05_motor_id bash build.sh
-"$DSS" tools/flash/prepare_is05_drv8305.js "$CCXML" \
-   build/launchxl_drv8305evm/<motor>/is05_motor_id/is05_motor_id.out
+BOARD=launchxl_drv8305evm MOTOR=<motor> LAB=<lab> bash build.sh
+"$DSS" tools/flash/prepare_drv8305_gate.js "$CCXML" \
+   build/launchxl_drv8305evm/<motor>/<lab>/<lab>.out
 ```
 
-The script runs the lab to its `while(flagEnableSys==false)` wait, asserts EN_GATE directly
-(`GPBSET<-0x80` → GPIO39 high), then sets `flagEnableSys=true` so offset cal runs. Positive proof
-the gate woke: `faultUse.all` goes **16→0** (gate off → the DRV8305 CSAs float and the CMPSS trips;
-gate on → CSAs live, zero current reads clean). It leaves the target running; drive the actual
-identification (set the is05 run flags, watch convergence) from the CCS watch window. The DRV8305
-runs on power-on defaults (CSA gain 10 V/V — matches the 47.14 A scaling); no SPI VDS/dead-time
-config is applied (fine for low-current ID bring-up).
+It runs the lab to its `while(flagEnableSys==false)` wait, asserts EN_GATE directly
+(`GPBSET<-0x80` → GPIO39 high), sets `flagEnableSys=true` so offset cal runs, and **hard-fails**
+(pulls EN_GATE low, leaves the target halted, exits 1) unless all checks pass: EN_GATE readback
+high, offset cal done, `faultUse.all==0`, `VdcBus_V>5`. Positive proof the gate woke: `faultUse.all`
+goes **16→0** (gate off → the DRV8305 CSAs float and the CMPSS trips; gate on → CSAs live, zero
+current reads clean). On success it leaves the target running; drive the lab's own flow (offset/gain
+trim, open-loop test, motor ID, …) from the CCS watch window. The DRV8305 runs on power-on defaults
+(CSA gain 10 V/V — matches the 47.14 A scaling); no SPI VDS/dead-time config is applied (fine for
+low-current bring-up).
+
+Recommended order on this freshly-ported board: **is02 (offset+gain cal, confirm current/voltage
+scaling) → is03 (open-loop spin, confirm phase order + current polarity/magnitude) → is04 (signal
+chain) → is05 (motor ID)** — don't trust is05's Rs/Ls/flux until is02/is03 pass.
 
 Per motor, capture the identified `USER_MOTOR_Rs_Ohm`, `Ls_d/Ls_q_H`, `RATED_FLUX_VpHz` and back
 them into `motors/<motor>.h` (the select→is05→backfill→tune workflow).
