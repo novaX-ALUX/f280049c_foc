@@ -10,17 +10,29 @@ rated current/voltage, maximum speed, inertia, etc. Swapping a motor means swapp
 - IDs are registered in `config/build_config.h` + the `MOTOR` case in `build.sh`. Verified on both boards (20/20 pass).
 
 ## Supported Motors (custom NovaX/AM series, 4 models)
-4 profiles are created and selectable. **Geometric pole pairs are filled** (4116=7, 62xx=14);
-**Rs/Ls/flux are currently bench seeds** (compile and run is05); update with measured values after power-on identification:
-- [ ] `am_4116_kva.h` (KV-A, 7 pole pairs) — KV to be filled; is05 to back-fill Rs/Ls/flux
-- [ ] `am_4116_kvb.h` (KV-B, different KV from A, 7 pole pairs)
+4 profiles are created and selectable. **Geometric pole pairs are filled** (4116=7, 62xx=14).
+The **4116 profiles are back-filled from verified legacy FAST ID** (spin-confirmed, see below); the
+**62xx Rs/Ls/flux are still bench seeds** — run is05 and back-fill measured values:
+- [x] `am_4116_kva.h` (KV450 wind, 7 pp) — Rs/Ls/flux from legacy FAST ID (esc_drv8300, 2026-06-05, spin-confirmed KV~450)
+- [x] `am_4116_kvb.h` (KV470 wind, 7 pp) — Rs/Ls/flux from legacy FAST re-ID (esc_drv8300, 2026-06-11)
 - [ ] `am_6212.h` (14 pole pairs)
 - [ ] `am_6215.h` (14 pole pairs)
+
+> **AM-4116 note:** is05 on the launchxl is NOT the back-fill path for the 4116 — FAST ID there hits
+> the BOOSTXL-DRV8305 over-current protection (the ~40 mOhm motor draws an instant ID-startup current
+> transient past the launchxl CMPSS trip / its +-23.57 A sense ceiling). The 4116 params instead come
+> from the legacy esc_drv8300 board, which identified them with a motor-appropriate (~40-58 A) OC trip
+> and confirmed the flux by a free-shaft spin. On the launchxl, the 4116 is limited to small-Iq
+> low-load sanity (is06); full-power running belongs to esc6288. The 62xx still follow the is05 flow.
 
 > Macro names aligned with SDK 6.0 `USER_MOTOR_*`. Operating range fields (FREQ/VOLT/rated) and inertia are placeholders; adjust per motor and power supply.
 > Full decoupling (board carries only hardware-scaling macros, completely free of motor examples) can be cleaned up later; the current "wrap-and-skip" approach is sufficient.
 
-> The legacy project (`../esc_drv8300_foc`) contains older parameters for these motors, but the 6212/6215 profiles have known cross-contamination and the 4116 flux has a known offset — **do not reuse directly; re-identify everything on hardware with is05 in this project**.
+> The legacy project (`../esc_drv8300_foc`) contains parameters for these motors. The **4116 values
+> have been re-identified and spin-confirmed** there (the earlier "flux offset" was a 2x readout-scale
+> error, since resolved) and are now back-filled above — they are trustworthy. The **6212/6215 legacy
+> profiles still have known cross-contamination** — for those, re-identify on hardware with is05 in
+> this project rather than reusing the legacy numbers.
 
 ## Standard Workflow: Select Motor → is05 Identification → Back-fill → Tune Loops
 Example using `am_6215` on the validation board (same procedure for other motors, change `MOTOR=`):

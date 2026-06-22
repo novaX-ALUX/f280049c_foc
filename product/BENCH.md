@@ -154,6 +154,21 @@ Recommended order on this freshly-ported board: **is02 (offset+gain cal, confirm
 scaling) → is03 (open-loop spin, confirm phase order + current polarity/magnitude) → is04 (signal
 chain) → is05 (motor ID)** — don't trust is05's Rs/Ls/flux until is02/is03 pass.
 
+### EXCEPTION — AM-4116 (and any sub-~50 mOhm motor): skip is03 V/f, and is05 won't ID here
+
+is03 is scalar **V/f open-loop**: it puts `USER_MOTOR_VOLT_MIN_V` straight across the winding at
+standstill. For the 4116 (~40 mOhm) that is `4.0 V / 0.04 Ohm ~ 100 A` — an instant over-current; the
+launchxl CMPSS (correctly) trips in microseconds (the charged 25 V bus cap supplies the spike before
+the PSU foldback responds). **Do NOT run is03 V/f for the 4116** — it is not a meaningful step for a
+low-Rs motor; confirm phase order under FAST/current control instead.
+
+is05 (FAST ID) also will not complete on the launchxl for the 4116: the ID-startup current transient
+exceeds the launchxl CMPSS trip and its **+-23.57 A current-sense ceiling** (7 mOhm shunt x CSA gain
+10). The 4116 profiles are therefore **back-filled from the verified legacy esc_drv8300 FAST ID**
+(see `motors/README.md`), not re-identified here. On the launchxl, exercise the 4116 only with small
+Iq, low-load sanity (is06 / product torque path); full-power ID and running belong to esc6288, whose
+shunt/CMPSS are sized for this motor. The 62xx (higher Rs) still follow the normal is02→is05 flow.
+
 ### is02 uses a dedicated script (`cal_is02.js`), not the generic gate-prep
 
 is02 is the ONLY sensorless lab that re-arms offset calibration forever: after each 50000-ISR pass
