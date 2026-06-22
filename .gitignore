@@ -4,3 +4,8 @@ build/
 *.map
 *.lst
 C2000Ware_MotorControl_SDK_6_00_00_00/
+
+# DSLite/DebugServer detailed trace: its --log arg defaults to the literal filename "true",
+# dropping a multi-MB JSON trace in cwd. Pass -g /tmp/dslite.log to redirect, or ignore it.
+/true
+/false

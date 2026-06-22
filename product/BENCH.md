@@ -26,8 +26,36 @@ other (avoids loading the wrong variant on the bench):
 — e.g. the two commands above produce `.../product/esc0_node0/product.out` and
 `.../product/esc0_node25/product.out`.
 
-This is a **RAM build** (`_RAM`, `f28004x_ram_cpu_is_eabi.cmd`): load it over JTAG with CCS /
-UniFlash and run from RAM. It does **not** persist across power-cycle (fine for the bench).
+This is a **RAM build** (`_RAM`, `f28004x_ram_cpu_is_eabi.cmd`): load it over JTAG and run from
+RAM. It does **not** persist across power-cycle (fine for the bench).
+
+## Headless flash + verify (DSS, no CCS GUI)
+
+Load and read back stage-A variables over the XDS110 straight from the shell. The target config
+`tools/flash/f280049c_xds110.ccxml` binds the F280049C under the XDS110; its driver set **must**
+include `cla2` (`icepick_c + c28x + cla2 + cs_child + ajsm`) — F280049C has a CLA that the
+F280025C device file lacks, and the DebugServer rejects board-data generation ("invalid processor
+ID") without the matching CLA driver.
+
+```bash
+DSLITE=~/ti/ccs/ccs_base/DebugServer/bin/DSLite
+DSS=~/ti/ccs/ccs_base/scripting/bin/dss.sh
+CCXML="$PWD/tools/flash/f280049c_xds110.ccxml"
+OUT="$PWD/build/launchxl_drv8305evm/am_4116_kva/product/esc0_node25/product.out"
+
+# load to RAM + run (DSLite loads and exits, leaving the target running):
+"$DSLITE" load -c "$CCXML" "$OUT"
+
+# attach, run 3.5s, halt, print the stage-A readout, leave target running:
+"$DSS" tools/flash/verify_stagea.js "$CCXML" "$OUT"
+```
+
+`verify_stagea.js <ccxml> <product.out>` prints `g_now_ms` twice (confirms the 1 ms tick
+increments by ~1000), `flagEnableSys` / `flagEnableOffsetCalc` / `flagRunIdentAndOnLine`,
+`faultUse.all`, `VdcBus_V`, and `g_dn.node_id` / `g_dn.armed`.
+
+> DSLite drops a multi-MB trace named `true` in the cwd (its `--log` arg defaults to that string);
+> it is gitignored. Pass `-g /tmp/dslite.log` to redirect it.
 
 - `ESC_INDEX=<0..19>` — our slot in the RawCommand array (validated in `build.sh`).
 - `NODE_ID=0` — dynamic allocation (DNA). Needs an allocator on the bus (ArduPilot/H7E has one;
