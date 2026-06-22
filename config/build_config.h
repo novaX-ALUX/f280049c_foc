@@ -30,4 +30,14 @@
 #error "BUILD_ESC_INDEX out of range (must be 0..19, the DroneCAN esc_index space)"
 #endif
 
+// Node-id source of truth: build.sh injects -DBUILD_NODE_ID via NODE_ID= (validated 0..127 there).
+// 0 = dynamic node-id allocation (DNA, the default H7E/ArduPilot path); 1..127 = static node id
+// (skips DNA so a bare CAN tool can drive RawCommand without an allocator on the bus).
+#ifndef BUILD_NODE_ID
+#define BUILD_NODE_ID                    (0)
+#endif
+#if (BUILD_NODE_ID < 0) || (BUILD_NODE_ID > 127)
+#error "BUILD_NODE_ID out of range (must be 0..127; 0 = dynamic/DNA)"
+#endif
+
 #endif

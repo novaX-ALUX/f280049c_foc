@@ -15,12 +15,18 @@ CAN_CHECK="${CAN_CHECK:-0}"          # 1 = cross-compile the board CAN bridge + 
 PRODUCT_CHECK="${PRODUCT_CHECK:-0}"  # 1 = cross-compile the product main + foc_bridge only (no link), then exit
 PRODUCT="${PRODUCT:-0}"              # 1 = link the product main (product/product_main.c) instead of an SDK lab
 ESC_INDEX="${ESC_INDEX:-0}"          # this ESC's index into the DroneCAN RawCommand array (0..19)
+NODE_ID="${NODE_ID:-0}"              # DroneCAN node id: 0 = dynamic (DNA); 1..127 = static (skip DNA)
 
 # ESC_INDEX must be a real integer in 0..19: an out-of-range / non-numeric value injected via
 # --define can silently land as 0 (dronecan_init also defaults illegal indices to 0), which on a
 # 4-in-1 would drive the wrong motor as index 0. Reject it here, before it reaches the compiler.
 if ! [[ "$ESC_INDEX" =~ ^[0-9]+$ ]] || [ "$ESC_INDEX" -gt 19 ]; then
   echo "Invalid ESC_INDEX=$ESC_INDEX (must be an integer 0..19)"; exit 1
+fi
+# NODE_ID 0 = DNA (default; the H7E/ArduPilot path). 1..127 = static node id, which skips DNA so a
+# bare CAN tool (no allocator) can drive RawCommand directly without the node staying unallocated.
+if ! [[ "$NODE_ID" =~ ^[0-9]+$ ]] || [ "$NODE_ID" -gt 127 ]; then
+  echo "Invalid NODE_ID=$NODE_ID (must be an integer 0..127; 0 = dynamic/DNA)"; exit 1
 fi
 
 # Motor selection: MOTOR name -> BUILD_MOTOR_ID (must match config/build_config.h + motors/motor_select.h)
@@ -80,7 +86,7 @@ CL="$CGT/bin/cl2000"
 
 CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
 # Board selection: build.sh injects BUILD_BOARD_ID per BOARD; each board.h uses it to self-check against board/build mismatch.
-DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX"
+DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX --define=BUILD_NODE_ID=$NODE_ID"
 INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/control/pi/include"
   -I"$MCSDK/libraries/control/vsf/include" -I"$MCSDK/libraries/control/fwc/include" -I"$MCSDK/libraries/control/mtpa/include"
   -I"$MCSDK/libraries/control/vs_freq/include" -I"$MCSDK/libraries/filter/filter_fo/include" -I"$MCSDK/libraries/filter/filter_so/include"

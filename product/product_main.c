@@ -213,7 +213,7 @@ static void product_init(void)
     product_read_unique_id(dncfg.unique_id);
     dncfg.esc_index             = (uint16_t)BUILD_ESC_INDEX;
     dncfg.arm_zero_frames       = 0u;   // -> default 10
-    dncfg.node_id               = 0u;   // dynamic node-id allocation (DNA)
+    dncfg.node_id               = (uint16_t)BUILD_NODE_ID;  // 0 = DNA; 1..127 = static (bench)
     dncfg.node_status_period_ms = 0u;   // -> default 1000
     dncfg.esc_status_period_ms  = 0u;   // -> default 100
     dncfg.dna_request_period_ms = 0u;   // -> default 1000
