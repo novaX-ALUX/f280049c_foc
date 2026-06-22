@@ -154,6 +154,29 @@ Recommended order on this freshly-ported board: **is02 (offset+gain cal, confirm
 scaling) → is03 (open-loop spin, confirm phase order + current polarity/magnitude) → is04 (signal
 chain) → is05 (motor ID)** — don't trust is05's Rs/Ls/flux until is02/is03 pass.
 
+### is02 uses a dedicated script (`cal_is02.js`), not the generic gate-prep
+
+is02 is the ONLY sensorless lab that re-arms offset calibration forever: after each 50000-ISR pass
+it latches the offsets then immediately re-sets `flagEnableOffsetCalc=true` (guarded by the
+lab-only `flagEnableOffsetCalibration`, default true). So `flagEnableOffsetCalc` is ~always 1 and
+the generic script's "`flagEnableOffsetCalc==0` => cal done" readiness gate would **false-fail** on
+is02. is03/is04/is05 self-clear once, so they keep using `prepare_drv8305_gate.js`.
+
+```bash
+BOARD=launchxl_drv8305evm MOTOR=am_4116_kva LAB=is02_offset_gain_cal bash build.sh
+"$DSS" tools/flash/cal_is02.js "$CCXML" \
+   build/launchxl_drv8305evm/am_4116_kva/is02_offset_gain_cal/is02_offset_gain_cal.out
+```
+
+`cal_is02.js` does the same EN_GATE bring-up + safety gate, but first sets
+`flagEnableOffsetCalibration=false` (one-shot cal so the offsets freeze and the flag settles to 0),
+then reads back the **analog-front-end health at zero current** (no motor / current-limited / no
+prop): `offsets_I_A` (3-phase symmetry), `offsets_V_V`, the post-offset-removal residual + noise
+band on `adcData.I_A`, and `VdcBus_V` vs the metered bus. It is a HEALTH CHECK, not a final
+calibration: the current gain (`USER_ADC_FULL_SCALE_CURRENT_A=47.14`) needs a known injected
+current and is deferred to is03; the voltage gain can be sanity-checked now (meter VM/PVDD vs
+`VdcBus_V`).
+
 Per motor, capture the identified `USER_MOTOR_Rs_Ohm`, `Ls_d/Ls_q_H`, `RATED_FLUX_VpHz` and back
 them into `motors/<motor>.h` (the select→is05→backfill→tune workflow).
 
