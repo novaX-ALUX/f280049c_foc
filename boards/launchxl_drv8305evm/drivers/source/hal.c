@@ -599,9 +599,12 @@ void HAL_setupCMPSSs(HAL_Handle handle)
 
     uint16_t  cnt;
 
-    // Set the initial value to half of ADC range
-    uint16_t cmpsaDACH = 2048 + 1024;
-    uint16_t cmpsaDACL = 2048 - 1024;
+    // Launchxl bench threshold: +/-1024 counts around mid-scale. With the
+    // BOOSTXL-DRV8305EVM 47.14 A full-scale current sense, this is about
+    // +/-11.8 A. PWM-edge coupling is handled by ePWM/CMPSS blanking, not by
+    // raising the trip threshold.
+    uint16_t cmpsaDACH = 2048U + 1024U;
+    uint16_t cmpsaDACL = 2048U - 1024U;
 
     for(cnt = 0; cnt < 3; cnt++)
     {
@@ -622,20 +625,22 @@ void HAL_setupCMPSSs(HAL_Handle handle)
         CMPSS_setDACValueHigh(obj->cmpssHandle[cnt], cmpsaDACH);
         CMPSS_setDACValueLow(obj->cmpssHandle[cnt], cmpsaDACL);
 
-        // Configure digital filter. For this example, the maxiumum values will
-        // be used for the clock prescale, sample window size, and threshold.
-        CMPSS_configFilterHigh(obj->cmpssHandle[cnt], 4, 3, 2);
-        CMPSS_configFilterLow(obj->cmpssHandle[cnt], 4, 3, 2);
+        // Filter CMPSS trips so PWM-edge noise does not bypass protection. At
+        // 100 MHz SYSCLK, (9 + 1) cycles/sample with a 15-sample window is
+        // roughly a 1.5 us window; the 10-sample threshold still trips quickly
+        // for sustained over-current.
+        CMPSS_configFilterHigh(obj->cmpssHandle[cnt], 9, 15, 10);
+        CMPSS_configFilterLow(obj->cmpssHandle[cnt], 9, 15, 10);
 
         // Initialize the filter logic and start filtering
         CMPSS_initFilterHigh(obj->cmpssHandle[cnt]);
         CMPSS_initFilterLow(obj->cmpssHandle[cnt]);
 
-        // Configure the output signals. Both CTRIPH and CTRIPOUTH will be fed
-        // by the asynchronous comparator output. CMPSS_INV_INVERTED |
+        // Configure both high and low trip outputs from the digital filter.
+        // Do not OR in the async comparator path: that bypasses the filter and
+        // lets benign PWM-edge spikes latch moduleOverCurrent.
         CMPSS_configOutputsHigh(obj->cmpssHandle[cnt], CMPSS_TRIP_FILTER |
-                                CMPSS_TRIPOUT_FILTER |
-                                CMPSS_OR_ASYNC_OUT_W_FILT);
+                                CMPSS_TRIPOUT_FILTER);
 
         CMPSS_configOutputsLow(obj->cmpssHandle[cnt], CMPSS_TRIP_FILTER |
                                CMPSS_TRIPOUT_FILTER |
@@ -763,6 +768,17 @@ void HAL_setupFaults(HAL_Handle handle)
     HAL_Obj *obj = (HAL_Obj *)handle;
     uint16_t cnt;
 
+#if (BOOST_to_LPD == BOOSTX_to_J1_J2)
+    // PWMBLANK source numbers match the phase ePWM modules:
+    // phase A=EPWM6, phase B=EPWM5, phase C=EPWM3.
+    const uint16_t cmpBlankSource[3] = {6U, 5U, 3U};
+#endif
+
+#if (BOOST_to_LPD == BOOSTX_to_J5_J6)
+    // phase A=EPWM1, phase B=EPWM4, phase C=EPWM2.
+    const uint16_t cmpBlankSource[3] = {1U, 4U, 2U};
+#endif
+
     // Configure Trip Mechanism for the Motor control software
     // -Cycle by cycle trip on CPU halt
     // -One shot fault trip zone
@@ -818,17 +834,38 @@ void HAL_setupFaults(HAL_Handle handle)
         // Enable DCB as OST
         EPWM_enableTripZoneSignals(obj->pwmHandle[cnt], EPWM_TZ_SIGNAL_DCBEVT1);
 
-        // Configure the DCA path to be un-filtered and asynchronous
+        // Configure the DCA path to use the filtered digital compare signal
         EPWM_setDigitalCompareEventSource(obj->pwmHandle[cnt],
                                           EPWM_DC_MODULE_A,
                                           EPWM_DC_EVENT_1,
                                           EPWM_DC_EVENT_SOURCE_FILT_SIGNAL);
 
-        // Configure the DCB path to be un-filtered and asynchronous
+        // Configure the DCB path to use the filtered digital compare signal
         EPWM_setDigitalCompareEventSource(obj->pwmHandle[cnt],
                                           EPWM_DC_MODULE_B,
                                           EPWM_DC_EVENT_1,
                                           EPWM_DC_EVENT_SOURCE_FILT_SIGNAL);
+
+        // Use ePWM digital-compare blanking to reject switch-node dV/dt
+        // coupling around center-aligned PWM compare edges. DCAEVT1 is the canonical OC
+        // event here: DCAH sees TRIP7/8/9, and each TRIP is CMPSSx_CTRIPH_OR_L.
+        // The selected DCF window also drives PWMBLANKx, which resets the
+        // corresponding CMPSS trip during the blanking interval.
+        EPWM_disableDigitalCompareBlankingWindow(obj->pwmHandle[cnt]);
+        EPWM_disableDigitalCompareWindowInverseMode(obj->pwmHandle[cnt]);
+        EPWM_disableDigitalCompareEdgeFilter(obj->pwmHandle[cnt]);
+        EPWM_setDigitalCompareFilterInput(obj->pwmHandle[cnt],
+                                          EPWM_DC_WINDOW_SOURCE_DCAEVT1);
+        EPWM_setDigitalCompareBlankingEvent(obj->pwmHandle[cnt],
+                                            EPWM_DC_WINDOW_START_TBCTR_ZERO_PERIOD);
+        EPWM_setDigitalCompareWindowOffset(obj->pwmHandle[cnt],
+                                           HAL_CMPSS_DCBLANK_DEFAULT_OFFSET_TBCLK);
+        EPWM_setDigitalCompareWindowLength(obj->pwmHandle[cnt],
+                                           HAL_CMPSS_DCBLANK_DEFAULT_WINDOW_TBCLK);
+        EPWM_enableDigitalCompareBlankingWindow(obj->pwmHandle[cnt]);
+
+        CMPSS_configBlanking(obj->cmpssHandle[cnt], cmpBlankSource[cnt]);
+        CMPSS_enableBlanking(obj->cmpssHandle[cnt]);
 
         // What do we want the OST/CBC events to do?
         // TZA events can force EPWMxA
@@ -847,6 +884,7 @@ void HAL_setupFaults(HAL_Handle handle)
         CMPSS_clearFilterLatchLow(obj->cmpssHandle[cnt]);
 
         // Clear any spurious fault
+        EPWM_clearOneShotTripZoneFlag(obj->pwmHandle[cnt], HAL_TZ_OST_ALL);
         EPWM_clearTripZoneFlag(obj->pwmHandle[cnt],
                                         HAL_TZ_INTERRUPT_ALL);
     }

@@ -5,10 +5,10 @@ Validates the launchxl torque chain: DroneCAN RawCommand → `esc_control` → F
 esc.Status / NodeStatus telemetry back. esc6288 is deferred (no schematic).
 
 > Safety first: current-limited supply, **no propeller**, start with a small `iq_max_A`.
-> The launchxl hardware over-current (CMPSS) path is still the inherited one
-> (`boards/launchxl_drv8305evm/drivers/include/board.h` §6 TODO) — do NOT rely on it as the
-> final protection. The software peak-current latch (`esc_control` on `i_motor_A`) is wired,
-> but bench testing must still limit supply current.
+> The launchxl CMPSS path is routed, digitally filtered, and ePWM-blanked for this bench,
+> while keeping the inherited +/-11.8 A DAC threshold. Treat it as bench protection only:
+> the real trip current still needs controlled-load validation, and esc6288 will use its
+> own shunt/CMPSS thresholds.
 
 ## Build & load
 
@@ -126,13 +126,14 @@ Fill in stable bench values; these become the config-finalization commit.
 | `iq_cmd_limit_A` | foc_bridge_cfg | 6.0 | _tbd_ |
 | pole pairs | `USER_MOTOR_NUM_POLE_PAIRS` | per motor | _tbd_ |
 
-## Power labs (is02+) — DRV8305 gate-enable workaround
+## Power labs (is02+) — DRV8305 gate-enable prep
 
 Every SDK sensorless lab that drives the power stage (is02 cal, is03 hardware test, is04 signal
 chain, is05 motor ID, is06+ control) calls `HAL_enableDRV()` only under `#ifdef DRV8320_SPI`, but
-launchxl builds with `DRV8305_SPI`, so the gate is never enabled (and the function is dead-stripped
-from the binary). The power stage is dead -> labs read garbage. Bring up the gate over the debugger
-(no vendor-source edit) with the lab-agnostic prep script:
+launchxl builds with `DRV8305_SPI`, so the lab's own main never enables the DRV8305. DSS on this
+setup can read symbols but cannot call target functions, so the prep script uses the only reliable
+debugger path: run the lab to its dead-wait, assert EN_GATE by writing GPIO39, then release
+`flagEnableSys`.
 
 ```bash
 BOARD=launchxl_drv8305evm MOTOR=<motor> LAB=<lab> bash build.sh
@@ -142,13 +143,11 @@ BOARD=launchxl_drv8305evm MOTOR=<motor> LAB=<lab> bash build.sh
 
 It runs the lab to its `while(flagEnableSys==false)` wait, asserts EN_GATE directly
 (`GPBSET<-0x80` → GPIO39 high), sets `flagEnableSys=true` so offset cal runs, and **hard-fails**
-(pulls EN_GATE low, leaves the target halted, exits 1) unless all checks pass: EN_GATE readback
-high, offset cal done, `faultUse.all==0`, `VdcBus_V>5`. Positive proof the gate woke: `faultUse.all`
-goes **16→0** (gate off → the DRV8305 CSAs float and the CMPSS trips; gate on → CSAs live, zero
-current reads clean). On success it leaves the target running; drive the lab's own flow (offset/gain
-trim, open-loop test, motor ID, …) from the CCS watch window. The DRV8305 runs on power-on defaults
-(CSA gain 10 V/V — matches the 47.14 A scaling); no SPI VDS/dead-time config is applied (fine for
-low-current bring-up).
+(pulls EN_GATE low, leaves the target halted, exits 1) unless all checks pass: EN_GATE readback high,
+offset cal done, `faultUse.all==0`, `VdcBus_V>5`. Positive proof the gate woke: `faultUse.all` goes
+**16→0** (gate off → the DRV8305 CSAs float and the CMPSS trips; gate on → CSAs live, zero current
+reads clean). On success it leaves the target running; drive the lab's own flow (offset/gain trim,
+open-loop test, motor ID, …) from the CCS watch window.
 
 Recommended order on this freshly-ported board: **is02 (offset+gain cal, confirm current/voltage
 scaling) → is03 (open-loop spin, confirm phase order + current polarity/magnitude) → is04 (signal
@@ -169,6 +168,19 @@ exceeds the launchxl CMPSS trip and its **+-23.57 A current-sense ceiling** (7 m
 Iq, low-load sanity (is06 / product torque path); full-power ID and running belong to esc6288, whose
 shunt/CMPSS are sized for this motor. The 62xx (higher Rs) still follow the normal is02→is05 flow.
 
+For the 4116 is06 sanity path, use the dedicated guarded runner:
+
+```bash
+BOARD=launchxl_drv8305evm MOTOR=am_4116_kva LAB=is06_torque_control bash build.sh
+"$DSS" tools/flash/run_is06.js "$CCXML" \
+   build/launchxl_drv8305evm/am_4116_kva/is06_torque_control/is06_torque_control.out 0.2
+```
+
+Hardware result after CMPSS route + blanking cleanup: at 24 V bus, `run_is06.js` completed the full
+~9 s window at Iq=0.2 A and Iq=1.0 A with `faultUse.all=0`. FAST online flux averaged close to the
+KVA/KV450 profile (`~0.012 V/Hz`). Treat that as a low-load sanity check only; full-power operation
+and final protection thresholds are esc6288 work.
+
 ### is02 uses a dedicated script (`cal_is02.js`), not the generic gate-prep
 
 is02 is the ONLY sensorless lab that re-arms offset calibration forever: after each 50000-ISR pass
@@ -183,7 +195,7 @@ BOARD=launchxl_drv8305evm MOTOR=am_4116_kva LAB=is02_offset_gain_cal bash build.
    build/launchxl_drv8305evm/am_4116_kva/is02_offset_gain_cal/is02_offset_gain_cal.out
 ```
 
-`cal_is02.js` does the same EN_GATE bring-up + safety gate, but first sets
+`cal_is02.js` does the same register-level EN_GATE bring-up + safety gate, but first sets
 `flagEnableOffsetCalibration=false` (one-shot cal so the offsets freeze and the flag settles to 0),
 then reads back the **analog-front-end health at zero current** (no motor / current-limited / no
 prop): `offsets_I_A` (3-phase symmetry), `offsets_V_V`, the post-offset-removal residual + noise

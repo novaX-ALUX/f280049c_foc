@@ -72,6 +72,15 @@ extern "C" {
                                  + EPWM_TZ_INTERRUPT_OST \
                                  + EPWM_TZ_INTERRUPT_CBC
 
+#define HAL_TZ_OST_ALL            EPWM_TZ_OST_FLAG_OST1 \
+                                 | EPWM_TZ_OST_FLAG_OST2 \
+                                 | EPWM_TZ_OST_FLAG_OST3 \
+                                 | EPWM_TZ_OST_FLAG_OST4 \
+                                 | EPWM_TZ_OST_FLAG_OST5 \
+                                 | EPWM_TZ_OST_FLAG_OST6 \
+                                 | EPWM_TZ_OST_FLAG_DCAEVT1 \
+                                 | EPWM_TZ_OST_FLAG_DCBEVT1
+
 //! configure the ample window to 15 system clock cycle wide by assigning 14
 //! to the ACQPS of ADCSOCxCTL Register for correct ADC operation
 #define HAL_ADC_SAMPLE_WINDOW           14
@@ -160,6 +169,23 @@ extern "C" {
 //! \brief Defines the bypassed delay for PWM on/off noise
 //!
 #define HAL_PM_NOISE_WINDOW_SET     10     // 10ns*
+
+// CMPSS/ePWM blanking for launchxl bench over-current protection. At the
+// default 100 MHz TBCLK, 800 counts gives an 8 us margin around each
+// center-aligned PWM compare edge. HAL_writePWMData() updates the window
+// from CMPA every ISR.
+#define HAL_CMPSS_DCBLANK_EDGE_MARGIN_TBCLK     800U
+#define HAL_CMPSS_DCBLANK_DEFAULT_OFFSET_TBCLK  25U
+#define HAL_CMPSS_DCBLANK_DEFAULT_WINDOW_TBCLK  1200U
+#define HAL_CMPSS_TRIP_CONFIRM_POLLS            8U
+
+// The BOOSTXL/4116 bench still produces brief DCA/DC source pulses while the
+// PWM/FAST path settles. Hardware TZ remains enabled immediately; this only
+// delays the SDK software latch (`faultNow.moduleOverCurrent`) after a PWM
+// enable so those startup pulses do not permanently stop the lab.
+#define HAL_CMPSS_TRIP_STARTUP_IGNORE_POLLS     200000UL
+
+static uint32_t halCMPSSStartupIgnorePolls = 0U;
 
 //! \brief Defines the function to turn LEDs off
 //!
@@ -1037,6 +1063,32 @@ HAL_readPWMPeriod(HAL_Handle handle, const uint16_t pwmNumber)
 } // end of HAL_readPWMPeriod() function
 
 
+static inline void
+HAL_updateCMPSSBlankingWindow(HAL_Obj *obj, const uint16_t pwmCnt,
+                              const uint16_t period, const uint16_t cmpValue)
+{
+    uint16_t edgeA = cmpValue;
+    uint16_t edgeB = period - cmpValue;
+    uint16_t edgeMin = (edgeA < edgeB) ? edgeA : edgeB;
+    uint16_t edgeMax = (edgeA > edgeB) ? edgeA : edgeB;
+    uint16_t offset;
+    uint16_t end;
+    uint16_t length;
+
+    offset = (edgeMin > HAL_CMPSS_DCBLANK_EDGE_MARGIN_TBCLK) ?
+             (uint16_t)(edgeMin - HAL_CMPSS_DCBLANK_EDGE_MARGIN_TBCLK) : 0U;
+
+    end = (((uint32_t)edgeMax + HAL_CMPSS_DCBLANK_EDGE_MARGIN_TBCLK) <
+           (uint32_t)period) ?
+          (uint16_t)(edgeMax + HAL_CMPSS_DCBLANK_EDGE_MARGIN_TBCLK) : period;
+
+    length = (end > offset) ? (uint16_t)(end - offset) : 1U;
+
+    EPWM_setDigitalCompareWindowOffset(obj->pwmHandle[pwmCnt], offset);
+    EPWM_setDigitalCompareWindowLength(obj->pwmHandle[pwmCnt], length);
+}
+
+
 //! \brief     Writes PWM data to the PWM comparators for motor control
 //! \param[in] handle    The hardware abstraction layer (HAL) handle
 //! \param[in] pPWMData  The pointer to the PWM data
@@ -1064,6 +1116,9 @@ HAL_writePWMData(HAL_Handle handle, HAL_PWMData_t *pPWMData)
         EPWM_setCounterCompareValue(obj->pwmHandle[pwmCnt],
                                     EPWM_COUNTER_COMPARE_A,
                                     pwmValue);
+
+        HAL_updateCMPSSBlankingWindow(obj, pwmCnt, (uint16_t)period,
+                                      (uint16_t)pwmValue);
     }
 
     // write the PWM data value  for ADC trigger
@@ -1107,6 +1162,9 @@ HAL_writePWMAllData(HAL_Handle handle, HAL_PWMData_t *pPWMData)
         EPWM_setCounterCompareValue(obj->pwmHandle[pwmCnt],
                                     EPWM_COUNTER_COMPARE_A,
                                     pwmValue);
+
+        HAL_updateCMPSSBlankingWindow(obj, pwmCnt, pPWMData->period,
+                                      (uint16_t)pwmValue);
     }
 
     // write the PWM data value  for ADC trigger
@@ -1124,6 +1182,7 @@ HAL_writePWMAllData(HAL_Handle handle, HAL_PWMData_t *pPWMData)
 static inline void HAL_enablePWM(HAL_Handle handle)
 {
     HAL_Obj *obj = (HAL_Obj *)handle;
+    uint16_t pwmCnt;
 
     // Clear comparator digital filter output latch
     CMPSS_clearFilterLatchHigh(obj->cmpssHandle[0]);
@@ -1135,9 +1194,21 @@ static inline void HAL_enablePWM(HAL_Handle handle)
     CMPSS_clearFilterLatchHigh(obj->cmpssHandle[2]);
     CMPSS_clearFilterLatchLow(obj->cmpssHandle[2]);
 
+    for(pwmCnt = 0U; pwmCnt < 3U; pwmCnt++)
+    {
+        uint16_t period = EPWM_getTimeBasePeriod(obj->pwmHandle[pwmCnt]);
+        uint16_t cmpa = EPWM_getCounterCompareValue(obj->pwmHandle[pwmCnt],
+                                                    EPWM_COUNTER_COMPARE_A);
+
+        HAL_updateCMPSSBlankingWindow(obj, pwmCnt, period, cmpa);
+        EPWM_clearOneShotTripZoneFlag(obj->pwmHandle[pwmCnt], HAL_TZ_OST_ALL);
+    }
+
     EPWM_clearTripZoneFlag(obj->pwmHandle[0], HAL_TZ_INTERRUPT_ALL);
     EPWM_clearTripZoneFlag(obj->pwmHandle[1], HAL_TZ_INTERRUPT_ALL);
     EPWM_clearTripZoneFlag(obj->pwmHandle[2], HAL_TZ_INTERRUPT_ALL);
+
+    halCMPSSStartupIgnorePolls = HAL_CMPSS_TRIP_STARTUP_IGNORE_POLLS;
 
     obj->flagEnablePWM = true;
 
@@ -1248,13 +1319,38 @@ static inline uint16_t HAL_getTripFaults(HAL_Handle handle)
 {
     HAL_Obj *obj = (HAL_Obj *)handle;
     uint16_t tripFault = 0;
+    static uint16_t tripConfirmPolls = 0U;
+    const uint16_t tripOstMask = EPWM_TZ_OST_FLAG_DCAEVT1 |
+                                 EPWM_TZ_OST_FLAG_DCBEVT1;
 
-    tripFault = (EPWM_getTripZoneFlagStatus(obj->pwmHandle[0]) &
-            (EPWM_TZ_FLAG_OST | EPWM_TZ_FLAG_DCAEVT1 | EPWM_TZ_FLAG_DCAEVT2)) |
-                (EPWM_getTripZoneFlagStatus(obj->pwmHandle[1]) &
-            (EPWM_TZ_FLAG_OST | EPWM_TZ_FLAG_DCAEVT1 | EPWM_TZ_FLAG_DCAEVT2)) |
-                (EPWM_getTripZoneFlagStatus(obj->pwmHandle[2]) &
-             (EPWM_TZ_FLAG_OST | EPWM_TZ_FLAG_DCAEVT1 | EPWM_TZ_FLAG_DCAEVT2));
+    if(halCMPSSStartupIgnorePolls > 0U)
+    {
+        halCMPSSStartupIgnorePolls--;
+        return(0U);
+    }
+
+    // Report software over-current only from one-shot DCA/DC source latches.
+    // TZFLG.DCA/DC and even COMPSTS filter latches can pulse during blanked
+    // PWM-edge coupling; a real one-shot trip keeps TZOSTFLG.DCAEVT1/DCBEVT1
+    // asserted long enough to pass this confirmation.
+    tripFault = (EPWM_getOneShotTripZoneFlagStatus(obj->pwmHandle[0]) &
+             tripOstMask) |
+                 (EPWM_getOneShotTripZoneFlagStatus(obj->pwmHandle[1]) &
+             tripOstMask) |
+                 (EPWM_getOneShotTripZoneFlagStatus(obj->pwmHandle[2]) &
+             tripOstMask);
+
+    if(tripFault == 0U)
+    {
+        tripConfirmPolls = 0U;
+        return(0U);
+    }
+
+    if(tripConfirmPolls < HAL_CMPSS_TRIP_CONFIRM_POLLS)
+    {
+        tripConfirmPolls++;
+        return(0U);
+    }
 
     return(tripFault);
 }

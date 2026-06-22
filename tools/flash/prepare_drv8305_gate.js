@@ -6,10 +6,9 @@
  *
  * Why: every SDK sensorless lab that drives the power stage calls HAL_enableDRV() only under
  * #ifdef DRV8320_SPI (e.g. is05_motor_id.c:426), but launchxl builds with DRV8305_SPI, so the lab
- * never enables the gate driver -> the power stage is dead. HAL_enableDRV() is also dead-stripped
- * from the binaries (nothing references it), so it cannot be DSS-called. We must NOT edit the
- * vendor SDK source, so instead: run the lab to its "while(flagEnableSys==false)" wait, assert
- * EN_GATE by writing the GPIO register directly, then set flagEnableSys=true so offset cal runs.
+ * never enables the DRV8305. DSS on this setup can read symbols but cannot CALL target functions, so
+ * the bench path must be register-level: run the lab to its "while(flagEnableSys==false)" wait,
+ * assert EN_GATE by writing GPIO39, then set flagEnableSys=true so offset cal runs.
  *
  * Scope (deliberately conservative): this ONLY brings the gate up and verifies the power stage is
  * healthy at zero current. It does NOT make any lab-specific calibration/identification decision --
@@ -17,10 +16,10 @@
  * against the still-running target after this passes.
  *
  * EN_GATE detail: BOARD_GATE_ENABLE_GPIO=39 (active-high) = GPIO port B bit 7. GPBSET =
- * GPIODATA_BASE(0x7F00) + GPIO_O_GPBSET(0xA) = 0x7F0A (write 0x80 -> high); GPBCLEAR = +0xC = 0x7F0C
- * (write 0x80 -> low); GPBDAT = +0x8 = 0x7F08 (read bit 7). The DRV8305 wakes with its CSAs active
- * on power-on defaults (the SDK SPI config only tweaks VDS level / dead-time / CSA gain; the default
- * CSA gain 10 V/V matches the 47.14 A scaling -- fine for low-current bring-up / ID).
+ * GPIODATA_BASE(0x7F00) + GPIO_O_GPBSET(0xA) = 0x7F0A (write 0x80 -> high); GPBCLEAR = +0xC =
+ * 0x7F0C (write 0x80 -> low); GPBDAT = +0x8 = 0x7F08 (read bit 7). DRV8305_configure() currently
+ * clears status and sets CSA gain to 10 V/V (the power-on default), so direct EN_GATE is equivalent
+ * for these lab bring-up checks.
  *
  * Enforcement (ENFORCED, not just printed): hard-fails -- pulls EN_GATE low, sets flagEnableSys=0,
  * leaves the target HALTED, exits 1 -- unless every check passes: parked at the dead-wait
@@ -76,8 +75,7 @@ p("at dead-wait: flagEnableSys=" + es0 + " (expect 0)  halHandle=" + hh + " (exp
 if(!(hh > 0))   fail("halHandle invalid -- HAL_init did not complete (not at the dead-wait).");
 if(es0 !== 0)   fail("flagEnableSys != 0 -- target is not parked at the lab's enable-sys wait.");
 
-// 2) assert EN_GATE directly (the lab skips HAL_enableDRV on DRV8305_SPI; that function is
-// dead-stripped, and GpioDataRegs bitfields are not resolvable in DSS).
+// 2) assert EN_GATE directly. DSS cannot call target functions reliably in this environment.
 p(">>> asserting EN_GATE (GPIO39 high, GPBSET<-0x80) to wake the DRV8305 ...");
 s.memory.writeData(Memory.Page.DATA, 0x7F0A, 0x80, 16);   // GPBSET low word, bit7 = GPIO39
 s.target.runAsynch(); Thread.sleep(50); s.target.halt();  // ~ms for DRV8305 wake

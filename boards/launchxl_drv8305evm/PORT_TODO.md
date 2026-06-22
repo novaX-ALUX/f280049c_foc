@@ -53,8 +53,16 @@ The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic a
     Applied in `HAL_setupCMPSSs` (J1_J2 branch): `cmpssHandle[]`={CMPSS3,CMPSS1,CMPSS6};
     `ASysCtl_selectCMP{H,L}PMux`→ SELECT_3=0 / SELECT_1=1 / SELECT_6=3; ePWM X-BAR TRIP9→MUX10(CMPSS6),
     TRIP7→MUX00(CMPSS1), TRIP8→MUX04(CMPSS3). **Verified on hardware** (`tools/flash/diag_oc_latch.js`
-    re-cal test): zero motor current + PWM on no longer asserts `moduleOverCurrent`. Remaining: the real
-    over-current TRIP THRESHOLD (DAC high/low) still needs a load test before relying on it for protection.
+    re-cal test): zero motor current + PWM on no longer asserts `moduleOverCurrent`. Follow-up hardware
+    evidence showed FOC modulation can still couple PWM-edge spikes into the comparator path, so the CMPSS
+    output path is now pure digital-filtered output (no async OR) with a longer 9/15/10 filter window, wide
+    ePWM/CMPSS blanking around center-aligned compare edges, and software fault reporting only from
+    persistent one-shot DCA/DC source latches after the PWM-startup window. The launchxl bench DAC threshold
+    stays at the inherited +/-11.8 A (`cmpsaDACH/DACL=3072/1024`); edge noise is handled by blanking rather
+    than by consuming trip-current headroom. **Verified on hardware** with AM-4116 KVA `is06_torque_control`
+    at 24 V, Iq=0.2 A and Iq=1.0 A for a full 9 s run (`faultUse.all=0`). Remaining: validate the real trip
+    current under controlled load before relying on it as final protection; esc6288 will use its own
+    shunt/CMPSS thresholds.
   - Note: the WithoutOffsets read function is dead code for this lab (is01/is02 only call WithOffsets), left as-is.
     J5/J6 EPWM1/2/4 pins are still configured but the boosterpack is not connected; harmless.
 - [x] **Phase 3 DRV8305 SPI Driver** (drivers/source/drv8305.c + include/drv8305.h)
@@ -64,11 +72,11 @@ The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic a
   - [x] Integrated into HAL functions: `HAL_setupGate`→`HAL_setupSPIA` (SPI was previously uncalled; now connected);
         `HAL_enableDRV`→ EN_GATE wake + ~1 ms delay + `DRV8305_configure`
   - [x] `build.sh` adds `drv8305.c` + `--define=DRV8305_SPI` based on BOARD; both boards compile cleanly
-  - ⚠️ **Runtime entry point not yet connected (pending bring-up)**: stock SDK lab `is01_intro_hal.c` only calls
-        `HAL_enableDRV()` inside `#ifdef DRV8320_SPI`; we define `DRV8305_SPI` → the default is01 path **does not execute**
-        `DRV8305_configure()` (EN stays low; safe until hardware is ready). In other words: `HAL_setupSPIA` runs with HAL initialization,
-        but the DRV8305 register configuration/enable has no runtime entry point yet. During bring-up, add a DRV8305-specific lab hook or local
-        lab wrapper that explicitly calls `HAL_enableDRV()` after confirming the timing sequence.
+  - [x] **SDK lab bring-up path**: stock SDK labs call `HAL_enableDRV()` only inside
+        `#ifdef DRV8320_SPI`; launchxl builds define `DRV8305_SPI`, so the lab mains do not enable the
+        gate themselves. DSS on this setup cannot call target functions, so `tools/flash/prepare_drv8305_gate.js`
+        and lab run scripts assert EN_GATE directly (GPIO39) after the lab reaches the `flagEnableSys`
+        wait, then release `flagEnableSys`. Product firmware still calls `HAL_enableDRV()` directly.
   - ⚠️ **Pending hardware confirmation**: SPI communication (read status/ID), 6-PWM mode (Control 7), VDS overcurrent threshold/gate drive current/dead-band to be tuned per motor from measurement; SPI polarity set per MotorWare (POL0PHA0), verify with oscilloscope on board.
 - [ ] **Phase 4 Power-on Bring-up**: is02 calibration → is03 self-test (low voltage / low current first) → is05 motor identification → is06/07 loop tuning
 

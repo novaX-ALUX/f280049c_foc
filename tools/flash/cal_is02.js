@@ -11,13 +11,14 @@
  * and the generic gate-prep's "flagEnableOffsetCalc==0 => cal done" readiness gate would
  * false-FAIL on is02. is03/is04/is05/is06 self-clear once, so they still use prepare_drv8305_gate.js.
  *
- * What this does: same EN_GATE bring-up + safety gate as prepare_drv8305_gate.js, but first sets
- * flagEnableOffsetCalibration=false so the cal runs ONCE and the latched offsets freeze (PWM is
- * disabled at completion). Then it reads and reports the is02 outputs and judges nothing final --
- * is02 is an analog-front-end HEALTH CHECK at zero current (no motor / current-limited / no prop):
- * confirm offsets converge + are 3-phase symmetric, the zero-current residual is small + low-noise,
- * and VdcBus_V matches the metered bus. The current GAIN (USER_ADC_FULL_SCALE_CURRENT_A=47.14) is
- * NOT trimmed here -- that needs a known injected current and moves to is03.
+ * What this does: same register-level EN_GATE bring-up + safety gate as
+ * prepare_drv8305_gate.js, but first sets flagEnableOffsetCalibration=false so the cal runs ONCE and
+ * the latched offsets freeze (PWM is disabled at completion). Then it reads and reports the is02
+ * outputs and judges nothing final -- is02 is an analog-front-end HEALTH CHECK at zero current (no
+ * motor / current-limited / no prop): confirm offsets converge + are 3-phase symmetric, the
+ * zero-current residual is small + low-noise, and VdcBus_V matches the metered bus. The current GAIN
+ * (USER_ADC_FULL_SCALE_CURRENT_A=47.14) is NOT trimmed here -- that needs a known injected current
+ * and moves to is03.
  *
  * Hard-fails (pulls EN_GATE low, flagEnableSys=0, leaves target HALTED, exit 1) unless: parked at
  * the dead-wait, EN_GATE readback high, the one-shot cal completed (flagEnableOffsetCalc==0),
@@ -74,7 +75,7 @@ if(!set("flagEnableOffsetCalibration", "0", e))
     fail("could not set flagEnableOffsetCalibration=0 (one-shot cal).");
 p("one-shot: flagEnableOffsetCalibration=" + num("flagEnableOffsetCalibration",e) + " (expect 0)");
 
-// 3) assert EN_GATE (lab skips HAL_enableDRV on DRV8305_SPI; GPBSET bit7 = GPIO39).
+// 3) assert EN_GATE directly. DSS cannot call target functions reliably in this environment.
 p(">>> asserting EN_GATE (GPIO39 high) to wake the DRV8305 ...");
 s.memory.writeData(Memory.Page.DATA, 0x7F0A, 0x80, 16);
 s.target.runAsynch(); Thread.sleep(50); s.target.halt();
