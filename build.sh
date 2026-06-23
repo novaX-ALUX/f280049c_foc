@@ -39,6 +39,20 @@ if ! [[ "$PWM_PHASE_ORDER" =~ ^[0-9]+$ ]] || [ "$PWM_PHASE_ORDER" -gt 5 ]; then
   echo "Invalid PWM_PHASE_ORDER=$PWM_PHASE_ORDER (must be auto or 0..5; 0=ABC)"; exit 1
 fi
 
+# DroneCAN SoftwareVersion.vcs_commit: a 32-bit hex tag (first 8 hex of the git HEAD) so a flashed
+# build is identifiable over GetNodeInfo. Override with BUILD_SW_VCS_COMMIT=<hex>; falls back to 0
+# outside a git checkout or on any parse failure (informational only -- never fatal to the build).
+VCS_RAW="${BUILD_SW_VCS_COMMIT:-}"
+if [ -z "$VCS_RAW" ]; then
+  VCS_RAW="$(git -C "$HERE" rev-parse HEAD 2>/dev/null | cut -c1-8 || true)"
+fi
+VCS_RAW="${VCS_RAW#0x}"; VCS_RAW="${VCS_RAW#0X}"
+if [[ "$VCS_RAW" =~ ^[0-9a-fA-F]{1,8}$ ]]; then
+  VCS_COMMIT="0x${VCS_RAW}u"
+else
+  VCS_COMMIT="0u"
+fi
+
 # Motor selection: MOTOR name -> BUILD_MOTOR_ID (must match config/build_config.h + motors/motor_select.h)
 case "$MOTOR" in
   motor_template) MOTOR_ID=1 ;;
@@ -96,7 +110,7 @@ CL="$CGT/bin/cl2000"
 
 CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
 # Board selection: build.sh injects BUILD_BOARD_ID per BOARD; each board.h uses it to self-check against board/build mismatch.
-DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX --define=BUILD_NODE_ID=$NODE_ID --define=BUILD_PWM_PHASE_ORDER=$PWM_PHASE_ORDER"
+DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX --define=BUILD_NODE_ID=$NODE_ID --define=BUILD_PWM_PHASE_ORDER=$PWM_PHASE_ORDER --define=BUILD_SW_VCS_COMMIT=$VCS_COMMIT"
 INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/control/pi/include"
   -I"$MCSDK/libraries/control/vsf/include" -I"$MCSDK/libraries/control/fwc/include" -I"$MCSDK/libraries/control/mtpa/include"
   -I"$MCSDK/libraries/control/vs_freq/include" -I"$MCSDK/libraries/filter/filter_fo/include" -I"$MCSDK/libraries/filter/filter_so/include"

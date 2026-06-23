@@ -40,4 +40,11 @@
 #error "BUILD_NODE_ID out of range (must be 0..127; 0 = dynamic/DNA)"
 #endif
 
+// DroneCAN SoftwareVersion.vcs_commit (reported over GetNodeInfo): build.sh injects
+// -DBUILD_SW_VCS_COMMIT as the 32-bit git short hash; defaults to 0 (informational only)
+// when not injected (host tests / IDE / non-git builds).
+#ifndef BUILD_SW_VCS_COMMIT
+#define BUILD_SW_VCS_COMMIT              (0u)
+#endif
+
 #endif

@@ -257,7 +257,7 @@ static void product_init(void)
     dncfg.hw_version_minor      = PRODUCT_HW_VERSION_MINOR;
     dncfg.sw_version_major      = PRODUCT_SW_VERSION_MAJOR;
     dncfg.sw_version_minor      = PRODUCT_SW_VERSION_MINOR;
-    dncfg.sw_vcs_commit         = 0u;   // TODO: inject git short hash via build.sh -D
+    dncfg.sw_vcs_commit         = (uint32_t)BUILD_SW_VCS_COMMIT;  // git short hash (build.sh)
     dncfg.node_name             = PRODUCT_NODE_NAME;
     dronecan_init(&g_dn, &dncfg);
 
