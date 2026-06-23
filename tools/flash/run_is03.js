@@ -2,7 +2,7 @@
  * run_is03.js - drive is03_hardware_test (scalar V/f open-loop spin) on launchxl over the debugger,
  * with EN_GATE bring-up, a safety gate, fault-abort, and a clean stop. First-spin bench helper.
  *
- * Usage: dss.sh tools/flash/run_is03.js <ccxml> <is03_hardware_test.out>  [speedRef_Hz]
+ * Usage: dss.sh tools/flash/run_is03.js <ccxml> <is03_hardware_test.out>  [speedRef_Hz] [duration_s] [accel_Hzps] [align_s]
  *
  * is03 is open-loop V/f: ANGLE_GEN forces the commutation angle, VS_FREQ sets the voltage from the
  * commanded frequency (no current loop, flag_bypassMotorId). It spins once flagRunIdentAndOnLine=1
@@ -29,7 +29,9 @@ function getf(nm){ try { var a=Number(e.evaluate("&"+nm));
 
 var ccxml=arguments[0], out=arguments[1];
 var SPEED_REF = (arguments.length > 2) ? Number(arguments[2]) : 10.0;  // Hz electrical
-var ACCEL = 5.0;       // Hz/s ramp (~2 s to SPEED_REF); must be set or the ramp stays at 0
+var DURATION_S = (arguments.length > 3) ? Number(arguments[3]) : 8.0;
+var ACCEL = (arguments.length > 4) ? Number(arguments[4]) : 5.0;
+var ALIGN_S = (arguments.length > 5) ? Number(arguments[5]) : 0.0;
 var VBUS_MIN = 5.0;
 
 var env=ScriptingEnvironment.instance(); env.setScriptTimeout(120000);
@@ -86,17 +88,28 @@ if(oc!==0)          fail("offset cal did not complete.");
 if(fu!==0)          fail("faultUse.all="+fu+" -- fault latched before spin.");
 if(!(vb>VBUS_MIN))  fail("VdcBus_V="+f3(vb)+" below "+VBUS_MIN+".");
 
-// 4) program the ramp + reference, then start the spin
+// 4) optionally hold a static voltage vector before ramping the open-loop angle.
 set("motorVars.accelerationMax_Hzps", ACCEL, e);   // 0 by default -> ramp would never move
-set("motorVars.speedRef_Hz", SPEED_REF, e);
-p(">>> flagRunIdentAndOnLine=1; ramping to "+SPEED_REF+" Hz at "+ACCEL+" Hz/s. WATCH THE ROTOR.");
+set("motorVars.speedRef_Hz", 0.0, e);
+p(">>> flagRunIdentAndOnLine=1; static alignment hold "+ALIGN_S+"s, then ramp to "+SPEED_REF+" Hz at "+ACCEL+" Hz/s.");
 if(!set("motorVars.flagRunIdentAndOnLine","1",e)) fail("could not set flagRunIdentAndOnLine=1.");
+if(ALIGN_S > 0.0) {
+    var holdSamples = Math.ceil(ALIGN_S / 0.5);
+    for(var h=0; h<holdSamples; h++) {
+        s.target.runAsynch(); Thread.sleep(500); s.target.halt();
+        var hf=num("motorVars.faultUse.all",e);
+        if(hf!==0) fail("faultUse.all="+hf+" latched during static alignment.");
+    }
+}
+set("motorVars.speedRef_Hz", SPEED_REF, e);
+p(">>> ramping now. WATCH THE ROTOR.");
 
 // 5) monitor ~8 s: per-phase current envelope, commanded freq, bus, faults. Abort on any fault.
 var lo=[1e9,1e9,1e9], hi=[-1e9,-1e9,-1e9];
 p("");
 p("  t(s) | spdTraj |   Ia      Ib      Ic    | VdcBus | faultUse");
-for(var i=0;i<16;i++){
+var samples = Math.max(1, Math.ceil(DURATION_S / 0.5));
+for(var i=0;i<samples;i++){
     s.target.runAsynch(); Thread.sleep(500); s.target.halt();
     var ia=getf("adcData.I_A.value[0]"), ib=getf("adcData.I_A.value[1]"), ic=getf("adcData.I_A.value[2]");
     var ic_arr=[ia,ib,ic];

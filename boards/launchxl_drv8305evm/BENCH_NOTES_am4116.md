@@ -128,5 +128,5 @@ possibly an encoder). **Do NOT pursue PWM-down / IDRIVE / GaN as a low-speed-obs
   The SDK tree is gitignored and the fork is intentionally NOT committed there, so a clean checkout
   will NOT run these two until the patch is applied (`patch -p1 <…patch`; `patch -R -p1` reverts).
 - (existing) `diag_drv8305_spi.js`, `run_curcal.js`/`run_socal.js`, `run_draghi.js`/`run_5hz.js`,
-  `run_is05_rampup.js`. NOTE: `run_draghi.js`/`run_5hz.js` print FAST Hz with the old `fm×7/(2π)` —
-  read those ÷7 (see Unit correction).
+  `run_is05_rampup.js`. (`run_draghi.js`/`run_5hz.js` now print FAST speed as `fm_lp_rps/(2π)` =
+  electrical Hz directly — the old `fm×7/(2π)` output was corrected; older logs still read ÷7.)
