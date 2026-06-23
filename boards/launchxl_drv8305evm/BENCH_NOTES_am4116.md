@@ -1,5 +1,14 @@
 # LaunchXL-F280049C + BOOSTXL-DRV8305EVM — AM-4116 bring-up bench notes
 
+> **Status: CLOSED for LaunchXL+BOOSTXL + AM-4116 standard BEMF startup.**
+> Do not keep retrying stock is05 / standard BEMF handoff on this bench — it is judged
+> (see Stage 1 below): the open-loop drag pulls out ~15 Hz, short of the ~20 Hz FAST-observable
+> region, and the ±23.57 A sense/protection margin is too narrow to brute-force it. This is a
+> bench-transition limit, NOT a motor/FAST limit (legacy esc_drv8300 identified this motor and spun
+> it to 8.16 krpm). Next work should move to **esc6288 bring-up** (MT6701 absolute angle bypasses
+> low-speed sensorless) or a separate **HFI / low-speed-observer** project (new algorithm, not is05
+> tuning, with explicit goals + exit criteria).
+
 Bench: LaunchXL-F280049C docked to BOOSTXL-DRV8305EVM, AM-4116 outrunner (12N14P, 7 pole
 pairs, KV450), clamped on the stator base, no prop, 24 V supply (≈5 A current limit).
 All runs driven over DSS (`tools/flash/*.js`) since this CCS/DSS setup cannot call target
