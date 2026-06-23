@@ -57,10 +57,13 @@ void DRV8305_configure(uint32_t spiBase)
                    (DRV8305_CSA_GAIN_10VPV << DRV8305_CTRLA_GAIN_CS3_S)));
 
     // Gate drive (Control 5/6/7), IC operation (9), VREG (B) and VDS sense (C)
-    // are left at DRV8305 power-on defaults: 6-PWM mode, EVM-tuned gate currents
-    // and dead time. Overwriting these blindly is riskier than the defaults.
-    // TODO(hardware): confirm 6-PWM mode (Control 7) and tune VDS OCP threshold /
-    //   gate-drive current / dead time for the actual test motor before is05+.
+    // are left at DRV8305 power-on defaults. Live SPI readback (bench-confirmed) shows:
+    //   CTRL_5/6 = 0x0344 (default gate drive), CTRL_7 = 0x0216 (PWM_MODE=6-PWM,
+    //   DEAD_TIME=60ns, TBLANK=2us, TVDS=4us), CTRL_A = 0x0000 (CSA gain 10V/V,
+    //   DC_CAL off = normal measurement), CTRL_C = 0x02C8 (VDS_LEVEL=0x19), STATUS=0.
+    // So 6-PWM mode and CSA-normal are CONFIRMED, not assumed.
+    // TODO(hardware): if scoping shows slow HO/LO edges, the effective (handshake) dead time
+    //   is set by gate-drive current (CTRL_5/6 IDRIVE/TDRIVE), not by DEAD_TIME alone.
 
     return;
 }
