@@ -1,0 +1,64 @@
+# is04_if_recorder.patch -- BENCH-ONLY fork of the SDK is04 lab adding a small in-ISR ring buffer
+# (g_rec_*) that captures fm_lp / Id_in / Iq_in / cmd / phase-peak time-series WITHOUT mid-run halts.
+#
+# WHY: the DSS scripts tools/flash/run_if_rec.js and tools/flash/run_if_rampB.js DEPEND on these
+# g_rec_* symbols. tools/flash/run_if_char.js does NOT (it runs on a clean is04 checkout).
+#
+# APPLY (the SDK tree is gitignored; this fork is intentionally NOT committed into it):
+#   cd C2000Ware_MotorControl_SDK_6_00_00_00/solutions/common/sensorless_foc/source
+#   patch -p1 < <repo>/tools/flash/is04_if_recorder.patch
+#   # rebuild: BOARD=launchxl_drv8305evm MOTOR=am_4116_kva LAB=is04_signal_chain_test bash build.sh
+# REVERT:  patch -R -p1 < <repo>/tools/flash/is04_if_recorder.patch
+#
+--- a/is04_signal_chain_test.c	2026-06-23 16:32:42.472861207 +0800
++++ b/is04_signal_chain_test.c	2026-06-23 16:32:08.059699316 +0800
+@@ -151,6 +151,21 @@
+ //!< define the current setting value for current close loop
+ MATH_Vec2 IdqSet_A = {0.0, 0.75};
+ 
++// BENCH-FORK(I-f recorder, Stage 1.5): one-shot subsampled time-series capture of the FAST speed
++// estimate and the measured dq currents, so a DSS script can read whether fm_lp settles near the
++// commanded open-loop frequency (vs perpetual noise) WITHOUT mid-run halts. Remove after Stage 1.5.
++#define IF_REC_N 256
++volatile int16_t  g_rec_arm   = 0;     //!< DSS sets 1 to start a one-shot capture
++volatile int16_t  g_rec_idx   = 0;     //!< write index; DSS resets to 0 before arming
++volatile uint16_t g_rec_decim = 400;   //!< record one sample every g_rec_decim ISR ticks (20kHz/400=50Hz)
++volatile uint16_t g_rec_cnt   = 0;     //!< decimation counter
++float32_t g_rec_fm[IF_REC_N];          //!< estOutputData.fm_lp_rps
++float32_t g_rec_id[IF_REC_N];          //!< Idq_in_A.value[0] (open-loop d-axis current)
++float32_t g_rec_iq[IF_REC_N];          //!< Idq_in_A.value[1] (open-loop q-axis current)
++float32_t g_rec_cmd[IF_REC_N];         //!< motorVars.speedTraj_Hz (live commanded elec freq, for continuous ramps)
++float32_t g_rec_ipk[IF_REC_N];         //!< peak |phase current| (slip / over-current visibility)
++// END BENCH-FORK
++
+ #ifdef DRV8320_SPI
+ //
+ // Watch window interface to the 8320 SPI
+@@ -844,6 +859,27 @@
+         //
+         PARK_run(parkHandle_I, &(estInputData.Iab_A), &(Idq_in_A));
+ 
++        // BENCH-FORK(I-f recorder, Stage 1.5): subsampled time-series capture. Remove after use.
++        if(g_rec_arm && (g_rec_idx < IF_REC_N))
++        {
++            if(++g_rec_cnt >= g_rec_decim)
++            {
++                g_rec_cnt = 0;
++                float32_t ia0 = fabsf(adcData.I_A.value[0]);
++                float32_t ib0 = fabsf(adcData.I_A.value[1]);
++                float32_t ic0 = fabsf(adcData.I_A.value[2]);
++                float32_t ipk0 = (ia0 > ib0) ? ia0 : ib0; if(ic0 > ipk0) ipk0 = ic0;
++                g_rec_fm[g_rec_idx]  = estOutputData.fm_lp_rps;
++                g_rec_id[g_rec_idx]  = Idq_in_A.value[0];
++                g_rec_iq[g_rec_idx]  = Idq_in_A.value[1];
++                g_rec_cmd[g_rec_idx] = motorVars.speedTraj_Hz;
++                g_rec_ipk[g_rec_idx] = ipk0;
++                g_rec_idx++;
++                if(g_rec_idx >= IF_REC_N) { g_rec_arm = 0; }
++            }
++        }
++        // END BENCH-FORK
++
+         //
+         // run the Id controller
+         //
