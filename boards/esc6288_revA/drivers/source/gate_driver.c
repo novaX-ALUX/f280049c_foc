@@ -1,4 +1,10 @@
 #include "gate_driver.h"
+#include "board.h"
+
+// esc6288_revA has no physical gate-enable pin (JSM6288T). HAL_setupGate() binds
+// the enable GPIO to BOARD_GPIO_NONE; the enable/disable writes below hard-skip
+// that sentinel so we never drive an illegal pin. Real on/off is the EPWM
+// trip-zone (see HAL_enablePWM/HAL_disablePWM), not this interface.
 
 GATE_DRIVER_Handle GATE_DRIVER_init(void *pMemory, const size_t numBytes)
 {
@@ -13,7 +19,7 @@ GATE_DRIVER_Handle GATE_DRIVER_init(void *pMemory, const size_t numBytes)
     handle = (GATE_DRIVER_Handle)pMemory;
     obj = (GATE_DRIVER_Obj *)handle;
 
-    obj->enableGpio = 0U;
+    obj->enableGpio = BOARD_GPIO_NONE;   // safe default until HAL_setupGate() binds it
     obj->enabled = false;
 
     return(handle);
@@ -33,7 +39,10 @@ void GATE_DRIVER_enable(GATE_DRIVER_Handle handle)
 {
     GATE_DRIVER_Obj *obj = (GATE_DRIVER_Obj *)handle;
 
-    GPIO_writePin(obj->enableGpio, 1U);
+    if(obj->enableGpio != BOARD_GPIO_NONE)
+    {
+        GPIO_writePin(obj->enableGpio, 1U);
+    }
     obj->enabled = true;
 
     return;
@@ -43,7 +52,10 @@ void GATE_DRIVER_disable(GATE_DRIVER_Handle handle)
 {
     GATE_DRIVER_Obj *obj = (GATE_DRIVER_Obj *)handle;
 
-    GPIO_writePin(obj->enableGpio, 0U);
+    if(obj->enableGpio != BOARD_GPIO_NONE)
+    {
+        GPIO_writePin(obj->enableGpio, 0U);
+    }
     obj->enabled = false;
 
     return;

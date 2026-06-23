@@ -170,6 +170,20 @@ static void product_read_unique_id(uint16_t uid[16])
 
 //! \brief Build the launchxl bench control configuration. Limits are conservative bench
 //!        defaults (TODO: tune per AM-4116 + board on the bench, plan ③-c commit 4).
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+// esc6288_revA board-side aux drivers (driverlib): RC-PWM throttle capture (eCAP1),
+// MT6701 SSI encoder read (SPIA), and the WS2812 RGB status LED (GPIO12).
+#include "rc_pwm.h"
+#include "mt6701_ssi.h"
+#include "rgb_led.h"
+#endif
+
+// esc6288_revA fast (per-ISR, 20 kHz) software overcurrent backstop, amps. Phases A/B have
+// no CMPSS comparator, so this is their fast trip (phase C also has CMPSS3). Hard backstop
+// above the 1 ms product OC limit (oc_set_A = 30 A) and below the +/-165 A sense FS. Tune
+// on the bench against the FET/shunt rating.
+#define ESC6288_ISR_OC_A   (60.0f)
+
 static void product_build_esc_cfg(esc_control_cfg_t *c)
 {
     uint16_t i;
@@ -185,10 +199,20 @@ static void product_build_esc_cfg(esc_control_cfg_t *c)
     c->auto_park_enable     = false;    // launchxl: no encoder -> never park
     c->failsafe_brake       = false;    // coast on link loss
 
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+    // esc6288_revA / 12S target (conservative bench bring-up defaults; raise after
+    // validation). Hardware backstops: CMPSS3 phase-C OC + CMPSS5 bus OV (~56 V). These
+    // software limits are the PRIMARY protection for phases A/B (which have no CMPSS).
+    c->oc_set_A   = 30.0f;  c->oc_clr_A   = 25.0f;   // current FS is +/-165 A; start low
+    c->vbus_ov_set = 54.0f; c->vbus_ov_clr = 50.0f;  // 12S max charge 50.4 V; HW OV ~56 V
+    c->vbus_uv_set = 18.0f; c->vbus_uv_clr = 22.0f;  // low for bench; raise for flight
+    c->temp_ot_set = 100.0f; c->temp_ot_clr = 85.0f; // NTC->degC mapping is a TODO (raw 25 C now)
+#else
     c->oc_set_A   = 8.0f;  c->oc_clr_A   = 6.0f;
     c->vbus_ov_set = 30.0f; c->vbus_ov_clr = 28.0f;
     c->vbus_uv_set = 9.0f;  c->vbus_uv_clr = 11.0f;
     c->temp_ot_set = 100.0f; c->temp_ot_clr = 85.0f;
+#endif
     // c->park / c->park_ref left zeroed (dormant on launchxl)
 }
 
@@ -221,6 +245,16 @@ static void product_init(void)
     dronecan_init(&g_dn, &dncfg);
 
     can_bridge_init();
+
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+    // Bring up the esc6288 board-side aux interfaces (after HAL setup; before the main
+    // loop). RC_PWM_init re-enables the eCAP1 clock the shared HAL leaves off. These read
+    // APIs (RC_PWM_getThrottle / MT6701_SSI_read / RGB_setColor) are wired into the control
+    // path during bench bring-up.
+    RC_PWM_init();
+    MT6701_SSI_init();
+    RGB_init();
+#endif
 }
 
 //! \brief Land the FOC setpoint on the SDK control variables (torque path only on launchxl).
@@ -715,6 +749,22 @@ __interrupt void mainISR(void)
     adcData.V_V.value[1] -= motorVars.offsets_V_V.value[1] * adcData.dcBus_V;
     adcData.V_V.value[2] -= motorVars.offsets_V_V.value[2] * adcData.dcBus_V;
 
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+    // Fast per-phase software overcurrent (20 kHz). Only meaningful once armed (PWM live);
+    // during offset cal the gates are OST-forced so getPwmEnableStatus() is false. On trip:
+    // force the OST safe-off immediately AND latch the product fault (same bit the CMPSS/TZ
+    // trip detection sets), so the main-loop arm path drops flagRunIdentAndOnLine and the
+    // motor stays stopped (no re-enable fight).
+    if((HAL_getPwmEnableStatus(halHandle) == true) &&
+       ((fabsf(adcData.I_A.value[0]) > ESC6288_ISR_OC_A) ||
+        (fabsf(adcData.I_A.value[1]) > ESC6288_ISR_OC_A) ||
+        (fabsf(adcData.I_A.value[2]) > ESC6288_ISR_OC_A)))
+    {
+        HAL_disablePWM(halHandle);
+        motorVars.faultNow.bit.moduleOverCurrent = 1;
+    }
+#endif
+
     if(motorVars.flagEnableOffsetCalc == false)
     {
         float32_t outMax_V;
@@ -814,7 +864,14 @@ void runOffsetsCalculation(void)
 
     if(motorVars.flagEnableSys == true)
     {
+        // esc6288_revA has no gate-enable pin: keep the outputs OST-forced through offset
+        // calibration. The EPWM timebase/SOCA keep running under the trip, so the ADC still
+        // samples the true zero-current value; bringing the gates live here (as other boards
+        // do, idling the PWM at 0%) would defeat the safe-off. The board-agnostic arm path
+        // (flagRunIdentAndOnLine && cal done) is the only place that un-trips for esc6288.
+#if (BUILD_BOARD_ID != BUILD_BOARD_ID_ESC6288_REVA)
         HAL_enablePWM(halHandle);
+#endif
 
         pwmData.Vabc_pu.value[0] = 0.0;
         pwmData.Vabc_pu.value[1] = 0.0;

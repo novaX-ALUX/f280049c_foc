@@ -76,9 +76,17 @@ extern "C" {
 //! to the ACQPS of ADCSOCxCTL Register for correct ADC operation
 #define HAL_ADC_SAMPLE_WINDOW           14
 
-//! \brief Defines the comparator number for current prection
-//!
-#define HAL_NUM_CMPSS_CURRENT           BOARD_NUM_CURRENT_SENSORS
+//! \brief Number of current-sense CMPSS comparators.
+//! esc6288_revA: only phase C (ADCINC2) has a CMPSS path, so there is ONE current-OC
+//! CMPSS. Phases A/B (ADCINB15/ADCINA1) have none and use software OC. This MUST stay 1
+//! -- the runtime DAC-update loop in product_main iterates over this count, and the
+//! DC-bus over-voltage CMPSS is a SEPARATE handle (cmpssBusOvHandle) outside that loop.
+#define HAL_NUM_CMPSS_CURRENT           (1U)
+
+//! \brief DC-bus over-voltage CMPSS5 high-comparator DAC threshold (count, VDDA/4096 ref).
+//! ~56 V at the 102.63 V full-scale divider: 56 * (2/62.2) / 3.3 * 4096 ~= 2235. Keep it
+//! below the FET Vds rating and above 12S max charge (50.4 V). Tune on the bench.
+#define HAL_BUS_OV_CMPSS_DACH           (2235U)
 
 
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
@@ -145,13 +153,14 @@ extern "C" {
                                 | EPWM_DC_COMBINATIONAL_TRIPIN9
 #endif
 
-//! \brief Defines the PWM deadband falling edge delay count (system clocks)
-//!
-#define HAL_PWM_DBFED_CNT         1     // the final deadband is set by DRV IC
+//! \brief PWM dead-band delay counts (TBCLK = 100 MHz -> 10 ns/count).
+//! The JSM6288T is a 6-input INDEPENDENT driver and does NOT insert dead time, so the
+//! MCU must. 50 counts = 500 ns is a conservative bring-up value; measure Vds /
+//! shoot-through on the bench and reduce toward the FETs' switching needs.
+#define HAL_PWM_DBFED_CNT         50    // ~500 ns falling-edge dead time
 
-//! \brief Defines the PWM deadband rising edge delay count (system clocks)
-//!
-#define HAL_PWM_DBRED_CNT         1     // the final deadband is set by DRV IC
+//! \brief see HAL_PWM_DBFED_CNT
+#define HAL_PWM_DBRED_CNT         50    // ~500 ns rising-edge dead time
 
 //! \brief Defines the PWM deadband rising edge delay count (system clocks)
 //!
@@ -560,37 +569,37 @@ HAL_readADCDataWithOffsets(HAL_Handle handle, HAL_ADCData_t *pADCData)
     float32_t voltage_sf = HAL_getVoltageScaleFactor(handle);
 
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
-  // convert phase A current        ->RA0/A14
-    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER0);
+    // esc6288_revA ADC result map (see HAL_setupADCs).
+    // phase A current - ADCINB15 (ADCB SOC0)
+    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER0);
     pADCData->I_A.value[0] = value * current_sf;
 
-    // convert phase B current        ->RC0/C7
-    value = (float32_t)ADC_readResult(obj->adcResult[2], ADC_SOC_NUMBER0);
+    // phase B current - ADCINA1 (ADCA SOC0)
+    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER0);
     pADCData->I_A.value[1] = value * current_sf;
 
-    // convert phase C current        ->RB0/B7
-    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER0);
+    // phase C current - ADCINC2 (ADCC SOC0)
+    value = (float32_t)ADC_readResult(obj->adcResult[2], ADC_SOC_NUMBER0);
     pADCData->I_A.value[2] = value * current_sf;
 
-    // convert phase A voltage        ->RA1/A5
-    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER1);
+    // phase A voltage - ADCINB6 (ADCB SOC1)
+    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER1);
     pADCData->V_V.value[0] = value * voltage_sf;
 
-    // convert phase B voltage        ->RB1/B0
-    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER1);
+    // phase B voltage - ADCINB3 (ADCB SOC2)
+    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER2);
     pADCData->V_V.value[1] = value * voltage_sf;
 
-    // convert phase C voltage        ->RC1/C2
+    // phase C voltage - ADCINC6 (ADCC SOC1)
     value = (float32_t)ADC_readResult(obj->adcResult[2], ADC_SOC_NUMBER1);
     pADCData->V_V.value[2] = value * voltage_sf;
 
-    // convert dcBus voltage          ->RB2/B1
-    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER2);
+    // DC bus voltage - ADCINA6 (ADCA SOC1)
+    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER1);
     pADCData->dcBus_V = value * voltage_sf;
 
-    // convert throttle          ->RB3/B3
-    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER3);
-    pADCData->throttle = value;
+    // throttle is captured by eCAP1 (RC-PWM), not an ADC channel
+    pADCData->throttle = 0.0f;
 #endif
 
 #if (BOOST_to_LPD == BOOSTX_to_J5_J6)
@@ -644,36 +653,37 @@ HAL_readADCDataWithoutOffsets(HAL_Handle handle, HAL_ADCData_t *pADCData)
     float32_t current_sf = -HAL_getCurrentScaleFactor(handle);
     float32_t voltage_sf = HAL_getVoltageScaleFactor(handle);
 
-    // convert phase A current
+    // esc6288_revA ADC result map (identical layout to HAL_readADCDataWithOffsets).
+    // phase A current - ADCINB15 (ADCB SOC0)
     value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER0);
     pADCData->I_A.value[0] = value * current_sf;
 
-    // convert phase B current
-    value = (float32_t)ADC_readResult(obj->adcResult[2], ADC_SOC_NUMBER1);
+    // phase B current - ADCINA1 (ADCA SOC0)
+    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER0);
     pADCData->I_A.value[1] = value * current_sf;
 
-    // convert phase C current
-    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER2);
+    // phase C current - ADCINC2 (ADCC SOC0)
+    value = (float32_t)ADC_readResult(obj->adcResult[2], ADC_SOC_NUMBER0);
     pADCData->I_A.value[2] = value * current_sf;
 
-    // convert phase A voltage
-    value = (float32_t)ADC_readResult(obj->adcResult[2], ADC_SOC_NUMBER3);
+    // phase A voltage - ADCINB6 (ADCB SOC1)
+    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER1);
     pADCData->V_V.value[0] = value * voltage_sf;
 
-    // convert phase B voltage
-    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER4);
+    // phase B voltage - ADCINB3 (ADCB SOC2)
+    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER2);
     pADCData->V_V.value[1] = value * voltage_sf;
 
-    // convert phase C voltage
-    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER5);
+    // phase C voltage - ADCINC6 (ADCC SOC1)
+    value = (float32_t)ADC_readResult(obj->adcResult[2], ADC_SOC_NUMBER1);
     pADCData->V_V.value[2] = value * voltage_sf;
 
-    // convert dcBus voltage
-    value = (float32_t)ADC_readResult(obj->adcResult[1], ADC_SOC_NUMBER6);
+    // DC bus voltage - ADCINA6 (ADCA SOC1)
+    value = (float32_t)ADC_readResult(obj->adcResult[0], ADC_SOC_NUMBER1);
     pADCData->dcBus_V = value * voltage_sf;
 
     return;
-} // end of HAL_readADCDataWithOffsets() function
+} // end of HAL_readADCDataWithoutOffsets() function
 
 
 //! \brief     Reads the timer count
@@ -1125,16 +1135,14 @@ static inline void HAL_enablePWM(HAL_Handle handle)
 {
     HAL_Obj *obj = (HAL_Obj *)handle;
 
-    // Clear comparator digital filter output latch
+    // Clear the phase-C current OC (CMPSS3) and DC-bus OV (CMPSS5) comparator latches.
+    // cmpssHandle[0] is the only real current channel on esc6288 (A/B have no CMPSS).
     CMPSS_clearFilterLatchHigh(obj->cmpssHandle[0]);
     CMPSS_clearFilterLatchLow(obj->cmpssHandle[0]);
+    CMPSS_clearFilterLatchHigh(obj->cmpssBusOvHandle);
 
-    CMPSS_clearFilterLatchHigh(obj->cmpssHandle[1]);
-    CMPSS_clearFilterLatchLow(obj->cmpssHandle[1]);
-
-    CMPSS_clearFilterLatchHigh(obj->cmpssHandle[2]);
-    CMPSS_clearFilterLatchLow(obj->cmpssHandle[2]);
-
+    // This is the REAL arm path: clearing the TZ flag releases the OST safe-off that
+    // HAL_setupFaults / HAL_disablePWM hold. (esc6288 offset-cal must NOT call this.)
     EPWM_clearTripZoneFlag(obj->pwmHandle[0], HAL_TZ_INTERRUPT_ALL);
     EPWM_clearTripZoneFlag(obj->pwmHandle[1], HAL_TZ_INTERRUPT_ALL);
     EPWM_clearTripZoneFlag(obj->pwmHandle[2], HAL_TZ_INTERRUPT_ALL);
@@ -1170,39 +1178,14 @@ static inline void HAL_setPWMBrake(HAL_Handle handle)
 {
     HAL_Obj *obj = (HAL_Obj *)handle;
 
-    EPWM_setActionQualifierContSWForceAction(obj->pwmHandle[0],
-                                    EPWM_AQ_OUTPUT_A, EPWM_AQ_SW_OUTPUT_LOW);
-
-    EPWM_setActionQualifierContSWForceAction(obj->pwmHandle[0],
-                                    EPWM_AQ_OUTPUT_B, EPWM_AQ_SW_OUTPUT_HIGH);
-
-    EPWM_setActionQualifierContSWForceAction(obj->pwmHandle[1],
-                                    EPWM_AQ_OUTPUT_A, EPWM_AQ_SW_OUTPUT_LOW);
-
-    EPWM_setActionQualifierContSWForceAction(obj->pwmHandle[1],
-                                    EPWM_AQ_OUTPUT_B, EPWM_AQ_SW_OUTPUT_HIGH);
-
-    EPWM_setActionQualifierContSWForceAction(obj->pwmHandle[2],
-                                    EPWM_AQ_OUTPUT_A, EPWM_AQ_SW_OUTPUT_LOW);
-
-    EPWM_setActionQualifierContSWForceAction(obj->pwmHandle[2],
-                                    EPWM_AQ_OUTPUT_B, EPWM_AQ_SW_OUTPUT_HIGH);
-
-    EPWM_setDeadBandDelayMode(obj->pwmHandle[0], EPWM_DB_RED, false);
-    EPWM_setDeadBandDelayMode(obj->pwmHandle[0], EPWM_DB_FED, false);
-
-    EPWM_setDeadBandDelayMode(obj->pwmHandle[1], EPWM_DB_RED, false);
-    EPWM_setDeadBandDelayMode(obj->pwmHandle[1], EPWM_DB_FED, false);
-
-    EPWM_setDeadBandDelayMode(obj->pwmHandle[2], EPWM_DB_RED, false);
-    EPWM_setDeadBandDelayMode(obj->pwmHandle[2], EPWM_DB_FED, false);
-
-    EPWM_clearTripZoneFlag(obj->pwmHandle[0], HAL_TZ_INTERRUPT_ALL);
-    EPWM_clearTripZoneFlag(obj->pwmHandle[1], HAL_TZ_INTERRUPT_ALL);
-    EPWM_clearTripZoneFlag(obj->pwmHandle[2], HAL_TZ_INTERRUPT_ALL);
+    // DISABLED on esc6288_revA bring-up. HAL_setPWMBrake() forces every low-side FET on,
+    // disables dead-band, AND clears the TZ flag -- it would defeat the EPWM safe-off and
+    // must never run before the motor is armed. A real short-brake will be re-introduced
+    // later as an armed-only path. For now this is an explicit no-op.
+    (void)obj;
 
     return;
-} // end of HAL_disablePWM() function
+} // end of HAL_setPWMBrake() function
 
 
 //! \brief     Sets up the PWMs (Pulse Width Modulators)
