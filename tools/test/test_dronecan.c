@@ -699,5 +699,90 @@ int main(void)
         CHECK(!f.extended); /* sanitize must not change frame type */
     }
 
+    /* ---- GetNodeInfo: service request in -> multi-frame response out (golden) ---- */
+    {
+        uint16_t k, j;
+        for (k = 0; k < sizeof(GOLD_GNI) / sizeof(GOLD_GNI[0]); ++k) {
+            const gold_gni_t *g = &GOLD_GNI[k];
+            dronecan_t dn;
+            dronecan_cfg_t c;
+            dronecan_rx_result_t r;
+            esc_telemetry_t tel;
+            dronecan_frame_t req, out[16];
+            int n;
+            memset(&c, 0, sizeof c);
+            memset(&tel, 0, sizeof tel);
+            c.node_id          = g->node_id;
+            c.sw_version_major = g->sw_major;
+            c.sw_version_minor = g->sw_minor;
+            c.sw_vcs_commit    = g->vcs;
+            c.hw_version_major = g->hw_major;
+            c.hw_version_minor = g->hw_minor;
+            c.node_name        = g->node_name;
+            for (j = 0; j < 16u; ++j) { c.unique_id[j] = (uint16_t)(0xA0u + j); }
+            dronecan_init(&dn, &c);
+
+            /* feed the request frame; a service is never a RawCommand */
+            memset(&req, 0, sizeof req);
+            req.id = g->req_id;
+            req.dlc = g->req_dlc;
+            req.extended = true;
+            for (j = 0; j < g->req_dlc; ++j) { req.data[j] = g->req_data[j]; }
+            dronecan_on_rx(&dn, &req, &r);
+            CHECK(!r.command_updated);
+            CHECK(dn.gni_pending);
+
+            /* GNI response is highest priority -> out[0..n-1] are the golden frames
+             * (NodeStatus/esc.Status may follow). uptime_sec = 7 matches the golden status. */
+            n = dronecan_tick(&dn, 7000u, &tel, out, 16);
+            CHECK(n >= (int)g->n);
+            for (j = 0; j < g->n; ++j) {
+                CHECK(frame_eq(&out[j], g->id[j], g->dlc[j], g->data[j]));
+            }
+            CHECK(!dn.gni_pending); /* one-shot: cleared once emitted */
+        }
+    }
+
+    /* ---- GetNodeInfo: request addressed to a DIFFERENT node id is ignored ---- */
+    {
+        const gold_gni_t *g = &GOLD_GNI[0];
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        dronecan_rx_result_t r;
+        dronecan_frame_t req;
+        uint16_t j;
+        memset(&c, 0, sizeof c);
+        c.node_id = (uint16_t)(g->node_id + 1u); /* we are NOT the addressee */
+        dronecan_init(&dn, &c);
+        memset(&req, 0, sizeof req);
+        req.id = g->req_id; req.dlc = g->req_dlc; req.extended = true;
+        for (j = 0; j < g->req_dlc; ++j) { req.data[j] = g->req_data[j]; }
+        dronecan_on_rx(&dn, &req, &r);
+        CHECK(!dn.gni_pending);
+    }
+
+    /* ---- GetNodeInfo: all-or-nothing -- a too-small cap leaves the response pending ---- */
+    {
+        const gold_gni_t *g = &GOLD_GNI[0];
+        dronecan_t dn;
+        dronecan_cfg_t c;
+        dronecan_rx_result_t r;
+        esc_telemetry_t tel;
+        dronecan_frame_t req, out[16];
+        uint16_t j;
+        memset(&c, 0, sizeof c);
+        memset(&tel, 0, sizeof tel);
+        c.node_id = g->node_id; c.node_name = g->node_name;
+        for (j = 0; j < 16u; ++j) { c.unique_id[j] = (uint16_t)(0xA0u + j); }
+        dronecan_init(&dn, &c);
+        memset(&req, 0, sizeof req);
+        req.id = g->req_id; req.dlc = g->req_dlc; req.extended = true;
+        for (j = 0; j < g->req_dlc; ++j) { req.data[j] = g->req_data[j]; }
+        dronecan_on_rx(&dn, &req, &r);
+        CHECK(dn.gni_pending);
+        (void)dronecan_tick(&dn, 7000u, &tel, out, (int)g->n - 1); /* one slot short */
+        CHECK(dn.gni_pending); /* could not fit -> still pending */
+    }
+
     CHECK_DONE();
 }

@@ -15,15 +15,28 @@
 #include "esc_types.h"
 #include "dronecan_frame.h"
 
+/* Max GetNodeInfo node name length we will emit (DSDL allows <=80). Bounds the response
+ * frame count; the TX caller (dronecan_tick cap) must hold the whole multi-frame transfer. */
+#define DRONECAN_NODE_NAME_MAX 32
+
 typedef struct {
     uint16_t esc_index;            /* 0..19; our index into the RawCommand array */
-    uint16_t unique_id[16];        /* 16-byte node unique id (low 8 bits each) for DNA */
+    uint16_t unique_id[16];        /* 16-byte node unique id (low 8 bits each) for DNA + GetNodeInfo */
     uint16_t arm_zero_frames;      /* consecutive zero commands required to arm (0 -> default) */
     uint16_t node_id;              /* 1..127 static; anything else -> dynamic (DNA) */
     uint32_t node_status_period_ms;/* 0 -> default 1000 */
     uint32_t esc_status_period_ms; /* 0 -> default 100 */
     uint32_t dna_request_period_ms;/* 0 -> default 1000 */
     uint32_t dna_start_delay_ms;   /* delay before the first allocation request */
+
+    /* GetNodeInfo response identity (so the node enumerates on ArduPilot / yakut / DroneCAN GUI). */
+    uint16_t hw_version_major;     /* HardwareVersion.major */
+    uint16_t hw_version_minor;     /* HardwareVersion.minor */
+    uint16_t sw_version_major;     /* SoftwareVersion.major */
+    uint16_t sw_version_minor;     /* SoftwareVersion.minor */
+    uint32_t sw_vcs_commit;        /* SoftwareVersion.vcs_commit; 0 -> optional VCS flag clear */
+    const char *node_name;         /* reverse-DNS node name (<=DRONECAN_NODE_NAME_MAX, static
+                                    * lifetime; the cfg copy keeps the pointer); NULL -> empty */
 } dronecan_cfg_t;
 
 typedef struct {
@@ -48,6 +61,12 @@ typedef struct {
     uint32_t last_esc_status_ms;
     uint16_t tid_node_status;    /* 5-bit transfer ids */
     uint16_t tid_esc_status;
+
+    /* Pending GetNodeInfo response (echoes the request's transfer-id/priority back to it) */
+    bool     gni_pending;
+    uint16_t gni_dst;            /* requester node id (response destination) */
+    uint16_t gni_tid;            /* request transfer id, echoed in the response */
+    uint16_t gni_prio;           /* request priority, echoed in the response */
 
     /* DNA (dynamic node-id allocatee) */
     uint16_t tid_alloc;

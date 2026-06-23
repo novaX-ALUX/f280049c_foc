@@ -135,7 +135,18 @@ static foc_bridge_cfg_t    g_fbcfg;
 static esc_command_t       g_cmd;        //!< last command from comms (valid if g_have_cmd)
 static bool                g_have_cmd;
 static uint32_t            g_now_ms;      //!< 1 ms tick counter (dronecan scheduling)
-static dronecan_frame_t    g_txbuf[4];    //!< NodeStatus(1) + esc.Status(3)
+
+//! GetNodeInfo identity so the node enumerates on ArduPilot / yakut / DroneCAN GUI.
+#define PRODUCT_NODE_NAME         "com.alux.novax.esc6288"   // <= DRONECAN_NODE_NAME_MAX (32)
+#define PRODUCT_SW_VERSION_MAJOR  0u
+#define PRODUCT_SW_VERSION_MINOR  1u
+#define PRODUCT_HW_VERSION_MAJOR  1u   // esc6288 rev A (launchxl bench shares the product fw id)
+#define PRODUCT_HW_VERSION_MINOR  0u
+
+//! One tick may emit the worst-case GetNodeInfo response (up to 11 frames for a 32-char name)
+//! ahead of NodeStatus(1) + esc.Status(3); size the buffer + tick cap to hold them all.
+#define PRODUCT_TXBUF_FRAMES      16
+static dronecan_frame_t    g_txbuf[PRODUCT_TXBUF_FRAMES];
 
 //
 // the functions
@@ -242,6 +253,12 @@ static void product_init(void)
     dncfg.esc_status_period_ms  = 0u;   // -> default 100
     dncfg.dna_request_period_ms = 0u;   // -> default 1000
     dncfg.dna_start_delay_ms    = 0u;
+    dncfg.hw_version_major      = PRODUCT_HW_VERSION_MAJOR;
+    dncfg.hw_version_minor      = PRODUCT_HW_VERSION_MINOR;
+    dncfg.sw_version_major      = PRODUCT_SW_VERSION_MAJOR;
+    dncfg.sw_version_minor      = PRODUCT_SW_VERSION_MINOR;
+    dncfg.sw_vcs_commit         = 0u;   // TODO: inject git short hash via build.sh -D
+    dncfg.node_name             = PRODUCT_NODE_NAME;
     dronecan_init(&g_dn, &dncfg);
 
     can_bridge_init();
@@ -341,8 +358,9 @@ static void product_tick_1ms(void)
         park_ref_clear_store_request(&g_esc.ref);
     }
 
-    // 6) periodic TX: DNA request while unallocated; NodeStatus + esc.Status once allocated
-    n = dronecan_tick(&g_dn, g_now_ms, &tel, g_txbuf, 4);
+    // 6) periodic TX: DNA while unallocated; GetNodeInfo response (if requested) + NodeStatus
+    //    + esc.Status once allocated
+    n = dronecan_tick(&g_dn, g_now_ms, &tel, g_txbuf, PRODUCT_TXBUF_FRAMES);
     for(i = 0; i < n; i++)
     {
         (void)can_bridge_write(&g_txbuf[i]);

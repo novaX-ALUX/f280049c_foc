@@ -37,6 +37,11 @@ void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg)
     dn->tid_node_status     = 0u;
     dn->tid_esc_status      = 0u;
 
+    dn->gni_pending = false;
+    dn->gni_dst     = 0u;
+    dn->gni_tid     = 0u;
+    dn->gni_prio    = 0u;
+
     dn->tid_alloc         = 0u;
     dn->dna_primed        = false;
     dn->dna_t0            = 0u;
@@ -132,21 +137,29 @@ static int32_t saturate_int(int32_t v, int32_t lo, int32_t hi)
     return v;
 }
 
+/* Serialize the 7-byte uavcan.protocol.NodeStatus body (shared by the NodeStatus message
+ * and the status field embedded at the front of a GetNodeInfo response). */
+static void pack_node_status_body(dronecan_payload_t *p, uint32_t now_ms, const esc_telemetry_t *tel)
+{
+    uint16_t health = (tel->hard_fault_bits != 0u) ? DRONECAN_HEALTH_ERROR : DRONECAN_HEALTH_OK;
+    uint16_t vendor = (uint16_t)(tel->hard_fault_bits & 0xFFFFu);
+
+    dronecan_pack_uint(p, now_ms / 1000u, 32u);           /* uptime_sec */
+    dronecan_pack_uint(p, health, 2u);                    /* health */
+    dronecan_pack_uint(p, DRONECAN_MODE_OPERATIONAL, 3u); /* mode */
+    dronecan_pack_uint(p, 0u, 3u);                        /* sub_mode */
+    dronecan_pack_uint(p, vendor, 16u);                   /* vendor_specific_status_code */
+}
+
 /* Build the single NodeStatus frame for the given uptime/health. */
 static void build_node_status(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
                               dronecan_frame_t *f)
 {
     dronecan_payload_t p;
     uint16_t plen, i;
-    uint16_t health = (tel->hard_fault_bits != 0u) ? DRONECAN_HEALTH_ERROR : DRONECAN_HEALTH_OK;
-    uint16_t vendor = (uint16_t)(tel->hard_fault_bits & 0xFFFFu);
 
     dronecan_payload_init(&p);
-    dronecan_pack_uint(&p, now_ms / 1000u, 32u);          /* uptime_sec */
-    dronecan_pack_uint(&p, health, 2u);                   /* health */
-    dronecan_pack_uint(&p, DRONECAN_MODE_OPERATIONAL, 3u);/* mode */
-    dronecan_pack_uint(&p, 0u, 3u);                       /* sub_mode */
-    dronecan_pack_uint(&p, vendor, 16u);                  /* vendor_specific_status_code */
+    pack_node_status_body(&p, now_ms, tel);
     plen = dronecan_payload_bytelen(&p);
 
     f->extended = true;
@@ -236,6 +249,99 @@ static void build_dna_request(dronecan_t *dn, dronecan_frame_t *f)
     f->dlc = (uint16_t)(plen + 1u);
 }
 
+/* Append val's low nbytes little-endian into buf at *pos. */
+static void buf_put_le(uint16_t *buf, uint16_t *pos, uint32_t val, uint16_t nbytes)
+{
+    uint16_t i;
+    for (i = 0; i < nbytes; ++i) {
+        buf[(*pos)++] = (uint16_t)((val >> (uint16_t)(8u * i)) & 0xFFu);
+    }
+}
+
+/*
+ * Build the GetNodeInfo response transfer (multi-frame) into out[0..cap). Returns the frame
+ * count, or 0 if the caller cannot hold the whole transfer (it then stays pending). The whole
+ * uavcan.protocol.GetNodeInfo.Response is byte-aligned, so it is assembled as raw wire bytes:
+ *   status (NodeStatus, 7) | software_version (15) | hardware_version (2 + uid[16] + cert_len=0)
+ *   | name (tail array, no length prefix).
+ * A service response echoes the request's transfer-id (gni_tid) and priority (gni_prio) and is
+ * addressed back to the requester (gni_dst); the source is our node id.
+ */
+static int build_node_info(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
+                           dronecan_frame_t *out, int cap)
+{
+    dronecan_payload_t ns;
+    uint16_t buf[2u + 7u + 15u + 19u + DRONECAN_NODE_NAME_MAX]; /* [0..1]=transfer CRC, [2..]=payload */
+    uint16_t pos = 0u, nslen, i, seed, crc, total, off, fidx, flags;
+    int need;
+    uint32_t id;
+    const char *nm = dn->cfg.node_name;
+
+    /* status: 7-byte NodeStatus body */
+    dronecan_payload_init(&ns);
+    pack_node_status_body(&ns, now_ms, tel);
+    nslen = dronecan_payload_bytelen(&ns);
+    for (i = 0; i < nslen; ++i) { buf[2u + pos++] = ns.bytes[i]; }
+
+    /* software_version: major, minor, optional_field_flags, vcs_commit(u32), image_crc(u64) */
+    flags = (dn->cfg.sw_vcs_commit != 0u) ? 1u : 0u; /* bit0 = VCS_COMMIT present; image_crc unset */
+    buf[2u + pos++] = (uint16_t)(dn->cfg.sw_version_major & 0xFFu);
+    buf[2u + pos++] = (uint16_t)(dn->cfg.sw_version_minor & 0xFFu);
+    buf[2u + pos++] = (uint16_t)(flags & 0xFFu);
+    buf_put_le(&buf[2], &pos, dn->cfg.sw_vcs_commit, 4u);
+    for (i = 0; i < 8u; ++i) { buf[2u + pos++] = 0u; } /* image_crc = 0 */
+
+    /* hardware_version: major, minor, unique_id[16], certificate_of_authenticity (len=0) */
+    buf[2u + pos++] = (uint16_t)(dn->cfg.hw_version_major & 0xFFu);
+    buf[2u + pos++] = (uint16_t)(dn->cfg.hw_version_minor & 0xFFu);
+    for (i = 0; i < 16u; ++i) { buf[2u + pos++] = (uint16_t)(dn->cfg.unique_id[i] & 0xFFu); }
+    buf[2u + pos++] = 0u; /* certificate_of_authenticity length (uint8) */
+
+    /* name: tail array (last field) -> no length prefix, just the bytes */
+    if (nm != NULL) {
+        uint16_t k = 0u;
+        while (nm[k] != '\0' && k < DRONECAN_NODE_NAME_MAX) {
+            buf[2u + pos++] = (uint16_t)(nm[k] & 0xFFu);
+            k++;
+        }
+    }
+
+    /* multi-frame transfer CRC over the serialized payload (signature-seeded), CRC at front */
+    seed = dronecan_transfer_crc_seed(DRONECAN_GET_NODE_INFO_SIG_LO, DRONECAN_GET_NODE_INFO_SIG_HI);
+    crc = dronecan_crc16(&buf[2], pos, seed);
+    buf[0] = (uint16_t)(crc & 0xFFu);
+    buf[1] = (uint16_t)((crc >> 8) & 0xFFu);
+    total = (uint16_t)(pos + 2u);
+
+    need = (int)((total + 6u) / 7u); /* 7 payload bytes per frame (8 - tail) */
+    if (cap < need) {
+        return 0; /* all-or-nothing: stay pending until the whole transfer fits */
+    }
+
+    id = dronecan_svc_id(dn->gni_prio, DRONECAN_STID_GET_NODE_INFO, false /* response */,
+                         dn->gni_dst, dn->node_id);
+    off = 0u;
+    fidx = 0u;
+    while (off < total) {
+        uint16_t remn = (uint16_t)(total - off);
+        uint16_t chunk = (remn >= 7u) ? (uint16_t)7 : remn;
+        dronecan_frame_t *f = &out[fidx];
+        bool sot = (fidx == 0u);
+        bool eot = ((off + chunk) >= total);
+        bool toggle = ((fidx & 1u) != 0u);
+        f->extended = true;
+        f->id = id;
+        for (i = 0; i < chunk; ++i) {
+            f->data[i] = buf[off + i];
+        }
+        f->data[chunk] = dronecan_tail_encode(sot, eot, toggle, dn->gni_tid);
+        f->dlc = (uint16_t)(chunk + 1u);
+        off = (uint16_t)(off + chunk);
+        fidx++;
+    }
+    return (int)fidx;
+}
+
 int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
                   dronecan_frame_t *out, int cap)
 {
@@ -276,6 +382,17 @@ int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
         dn->last_node_status_ms = now_ms - dn->cfg.node_status_period_ms;
         dn->last_esc_status_ms  = now_ms - dn->cfg.esc_status_period_ms;
         dn->sched_primed = true;
+    }
+
+    /* Highest priority: answer a pending GetNodeInfo request. All-or-nothing -- if the whole
+     * multi-frame response does not fit in the remaining slots it stays pending for a later tick
+     * (so a caller with a large enough cap enumerates promptly). */
+    if (dn->gni_pending) {
+        int got = build_node_info(dn, now_ms, tel, &out[n], cap - n);
+        if (got > 0) {
+            n += got;
+            dn->gni_pending = false;
+        }
     }
 
     /* Priority: NodeStatus before esc.Status. */
@@ -396,6 +513,28 @@ static void handle_allocation(dronecan_t *dn, const dronecan_frame_t *f)
     }
 }
 
+/* Record a pending GetNodeInfo response for a request addressed to us. The response is emitted
+ * by dronecan_tick (the sole frame emitter), echoing the request transfer-id/priority. */
+static void handle_get_node_info(dronecan_t *dn, const dronecan_frame_t *f)
+{
+    dronecan_tail_t tail;
+
+    if (dn->node_id == 0u) {
+        return; /* unallocated: no source id to answer with yet */
+    }
+    if (!dronecan_id_is_request(f->id)) {
+        return; /* a response (someone else's), not a request -> ignore */
+    }
+    if (dronecan_id_source(f->id) == 0u || dronecan_id_dest(f->id) != dn->node_id || f->dlc < 1u) {
+        return; /* must be from a real node, addressed to us, and carry a tail byte */
+    }
+    tail = dronecan_tail_decode(f->data[f->dlc - 1u]);
+    dn->gni_dst     = dronecan_id_source(f->id);
+    dn->gni_tid     = tail.transfer_id;          /* response echoes the request transfer id */
+    dn->gni_prio    = dronecan_id_priority(f->id);
+    dn->gni_pending = true;
+}
+
 void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_result_t *res)
 {
     uint16_t dtid;
@@ -411,8 +550,15 @@ void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_resul
     if (f->dlc > 8u) {
         return; /* malformed: more data bytes than a CAN frame can hold */
     }
-    if (!f->extended || dronecan_id_is_service(f->id)) {
-        return; /* DroneCAN messages are extended, non-service */
+    if (!f->extended) {
+        return; /* DroneCAN is always extended-id */
+    }
+    if (dronecan_id_is_service(f->id)) {
+        /* Services carry no RawCommand; the only one we answer is GetNodeInfo. */
+        if (dronecan_id_svc_type(f->id) == DRONECAN_STID_GET_NODE_INFO) {
+            handle_get_node_info(dn, f);
+        }
+        return;
     }
 
     dtid = dronecan_id_msg_dtid(f->id);

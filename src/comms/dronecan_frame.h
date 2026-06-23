@@ -36,8 +36,15 @@ bool     dronecan_id_is_service(uint32_t id);      /* bit [7] */
 uint16_t dronecan_id_msg_dtid(uint32_t id);        /* message frame DTID, bits [23:8] */
 uint16_t dronecan_id_discriminator(uint32_t id);   /* anonymous frame, bits [23:10] */
 
+/* Service frame fields (only meaningful when dronecan_id_is_service()). */
+uint16_t dronecan_id_svc_type(uint32_t id);        /* service type id, bits [23:16] */
+bool     dronecan_id_is_request(uint32_t id);      /* bit [15]: 1 = request, 0 = response */
+uint16_t dronecan_id_dest(uint32_t id);            /* destination node id, bits [14:8] */
+
 uint32_t dronecan_msg_id(uint16_t priority, uint16_t dtid, uint16_t source);
 uint32_t dronecan_anon_id(uint16_t priority, uint16_t dtid, uint16_t discriminator);
+uint32_t dronecan_svc_id(uint16_t priority, uint16_t svc_type, bool request,
+                         uint16_t dest, uint16_t source);
 
 /* ---- DroneCAN tail byte ---- */
 typedef struct {

@@ -14,6 +14,9 @@
 #define DRONECAN_DTID_RAW_COMMAND     1030u   /* uavcan.equipment.esc.RawCommand */
 #define DRONECAN_DTID_ALLOCATION      1u      /* uavcan.protocol.dynamic_node_id.Allocation */
 
+/* Service type IDs (STID) */
+#define DRONECAN_STID_GET_NODE_INFO   1u      /* uavcan.protocol.GetNodeInfo (service) */
+
 /* Transfer priorities (lower = higher priority) */
 #define DRONECAN_PRIO_NODE_STATUS     16u
 #define DRONECAN_PRIO_ESC_STATUS      16u
@@ -24,6 +27,8 @@
 #define DRONECAN_ESC_STATUS_SIG_HI    0xA9AF28AEu
 #define DRONECAN_ALLOCATION_SIG_LO    0x20A11D40u
 #define DRONECAN_ALLOCATION_SIG_HI    0x0B2A8126u
+#define DRONECAN_GET_NODE_INFO_SIG_LO 0x21C46A9Eu  /* sig 0xEE468A8121C46A9E */
+#define DRONECAN_GET_NODE_INFO_SIG_HI 0xEE468A81u
 
 /* uavcan.protocol.NodeStatus health / mode */
 #define DRONECAN_HEALTH_OK            0u

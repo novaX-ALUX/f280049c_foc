@@ -20,6 +20,10 @@ bool     dronecan_id_is_service(uint32_t id)    { return ((id >> 7) & 1u) != 0u;
 uint16_t dronecan_id_msg_dtid(uint32_t id)      { return (uint16_t)((id >> 8) & 0xFFFFu); }
 uint16_t dronecan_id_discriminator(uint32_t id) { return (uint16_t)((id >> 10) & 0x3FFFu); }
 
+uint16_t dronecan_id_svc_type(uint32_t id)      { return (uint16_t)((id >> 16) & 0xFFu); }
+bool     dronecan_id_is_request(uint32_t id)    { return ((id >> 15) & 1u) != 0u; }
+uint16_t dronecan_id_dest(uint32_t id)          { return (uint16_t)((id >> 8) & 0x7Fu); }
+
 uint32_t dronecan_msg_id(uint16_t priority, uint16_t dtid, uint16_t source)
 {
     return (((uint32_t)(priority & 0x1Fu)) << 24)
@@ -33,6 +37,19 @@ uint32_t dronecan_anon_id(uint16_t priority, uint16_t dtid, uint16_t discriminat
     return (((uint32_t)(priority & 0x1Fu)) << 24)
          | (((uint32_t)(discriminator & 0x3FFFu)) << 10)
          | (((uint32_t)(dtid & 0x3u)) << 8);
+}
+
+uint32_t dronecan_svc_id(uint16_t priority, uint16_t svc_type, bool request,
+                         uint16_t dest, uint16_t source)
+{
+    /* Service frame: priority[28:24], service-type-id[23:16], request-not-response[15],
+     * destination[14:8], service-not-message[7]=1, source[6:0]. */
+    return (((uint32_t)(priority & 0x1Fu)) << 24)
+         | (((uint32_t)(svc_type & 0xFFu)) << 16)
+         | (request ? ((uint32_t)1u << 15) : 0u)
+         | (((uint32_t)(dest & 0x7Fu)) << 8)
+         | ((uint32_t)1u << 7)
+         | ((uint32_t)(source & 0x7Fu));
 }
 
 /* ---- tail byte ---- */

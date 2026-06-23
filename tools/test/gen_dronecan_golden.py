@@ -218,6 +218,71 @@ def main():
     p("};")
     p("")
 
+    # ---- GetNodeInfo (service type 1) golden: request frame in, response frames out ----
+    p("/* ===== GetNodeInfo (service 1) golden ===== */")
+    p("typedef struct { const char *name; uint16_t node_id; uint16_t requester; uint16_t tid;")
+    p("                 uint16_t prio; uint16_t sw_major; uint16_t sw_minor; uint32_t vcs;")
+    p("                 uint16_t hw_major; uint16_t hw_minor; const char *node_name;")
+    p("                 uint32_t req_id; uint16_t req_dlc; uint16_t req_data[8];")
+    p("                 uint16_t n; uint32_t id[12]; uint16_t dlc[12]; uint16_t data[12][8]; } gold_gni_t;")
+    gni_cases = [
+        # name, node_id, requester, tid, prio, sw_major, sw_minor, vcs, hw_major, hw_minor, node_name
+        ("gni_esc6288", 25, 42, 9, 16, 1, 2, 0x00000000, 1, 0, "org.alux.esc6288"),
+        ("gni_vcs",    100,  7, 3, 20, 3, 4, 0x0ABCDEF0, 2, 1, "esc"),
+    ]
+    p("static const gold_gni_t GOLD_GNI[] = {")
+    for (name, node_id, requester, tid, prio,
+         swM, swm, vcs, hwM, hwm, node_name) in gni_cases:
+        # request (empty payload) from the requester to our node
+        treq = Transfer(payload=uavcan.protocol.GetNodeInfo.Request(),
+                        source_node_id=requester, dest_node_id=node_id, transfer_id=tid,
+                        transfer_priority=prio, service_not_message=True,
+                        request_not_response=True)
+        rf = treq.to_frames()
+        assert len(rf) == 1, "%s: request expected 1 frame, got %d" % (name, len(rf))
+        rbs = bytes(rf[0].bytes)
+
+        # response from our node back to the requester
+        resp = uavcan.protocol.GetNodeInfo.Response()
+        resp.status.uptime_sec = 7
+        resp.status.health = 0
+        resp.status.mode = 0
+        resp.status.sub_mode = 0
+        resp.status.vendor_specific_status_code = 0
+        resp.software_version.major = swM
+        resp.software_version.minor = swm
+        resp.software_version.optional_field_flags = 1 if vcs else 0
+        resp.software_version.vcs_commit = vcs
+        resp.software_version.image_crc = 0
+        resp.hardware_version.major = hwM
+        resp.hardware_version.minor = hwm
+        resp.hardware_version.unique_id = UNIQUE_ID
+        resp.name = node_name
+        tr = Transfer(payload=resp, source_node_id=node_id, dest_node_id=requester,
+                      transfer_id=tid, transfer_priority=prio,
+                      service_not_message=True, request_not_response=False)
+        fr = tr.to_frames()
+        assert len(fr) <= 12, "%s: %d response frames" % (name, len(fr))
+        ids, dlcs, datas = [], [], []
+        for i in range(12):
+            if i < len(fr):
+                bs = bytes(fr[i].bytes)
+                ids.append("0x%08X" % fr[i].message_id)
+                dlcs.append(str(len(bs)))
+                datas.append(c_bytes(bs))
+            else:
+                ids.append("0"); dlcs.append("0"); datas.append("{0}")
+        p("  /* %s: node_id=%u requester=%u tid=%u name=%r frames=%u (uptime_sec=7) */" %
+          (name, node_id, requester, tid, node_name, len(fr)))
+        p("  { \"%s\", %u, %u, %u, %u, %u, %u, 0x%08Xu, %u, %u, \"%s\"," %
+          (name, node_id, requester, tid, prio, swM, swm, vcs, hwM, hwm, node_name))
+        p("    0x%08X, %u, %s, %u," % (rf[0].message_id, len(rbs), c_bytes(rbs), len(fr)))
+        p("    {%s}," % ", ".join(ids))
+        p("    {%s}," % ", ".join(dlcs))
+        p("    {%s} }," % ", ".join(datas))
+    p("};")
+    p("")
+
     sys.stdout.write("\n".join(out).rstrip("\n") + "\n")
 
 
