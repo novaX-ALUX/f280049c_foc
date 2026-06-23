@@ -1,0 +1,320 @@
+PARTS LIST
+
+1.2nF             C0402           C1
+2.2nF             C0603           C2
+100nF             C0603           C3
+1uF               C0603           C4
+47pF              C0402           C5
+2.2uF             C1206           C6
+1uF               C0603           C7
+4.7uF             C0603           C8
+4.7uF             C0603           C9
+2.2uF             C0603           C10
+10uF              C0603           C11
+100nF             C0402           C12
+100nF             C0402           C13
+100nF             C0402           C14
+100nF             C0402           C15
+2.2uF             C0402           C16
+2.2uF             C0402           C17
+2.2uF             C0402           C18
+100nF             C0402           C19
+100nF             C0402           C20
+2.2uF             C0402           C21
+100nF             C0402           C22
+100nF             C0402           C23
+100nF             C0402           C24
+100nF             C0402           C25
+100nF             C0402           C26
+100nF             C0402           C27
+1nF               C0402           C28
+100nF             C0402           C29
+4.7uF             C0402           C30
+2.2nF             C0402           C31
+100nF             C0402           C32
+2.2uF             C0402           C33
+4.7uF             C1206           C34
+10uF              C1206           C35
+4.7uF             C1206           C36
+10uF              C1206           C37
+4.7uF             C1206           C38
+10uF              C1206           C39
+100nF             C0402           C40
+2.2uF             C0402           C41
+2.2uF             C0402           C42
+10uF              C0402           C43
+10uF              C0402           C44
+100nF             C0402           C45
+1nF               C0402           C46
+2.2nF             C0402           C47
+100nF             C0402           C48
+100nF             C0402           C49
+1nF               C0402           C50
+220nF             C0603           C51
+33nF              C0402           C52
+2.2nF             C0402           C53
+220nF             C0603           C54
+33nF              C0402           C55
+220nF             C0603           C56
+33nF              C0402           C57
+33nF              C0402           C58
+4.7uF             C0603           C59
+10uF              C0603           C60
+FR107             SOD-123FL       D1
+FR107             SOD-123FL       D2
+FR107             SOD-123FL       D3
+PESD2IVN24-TR-ES  SOT-23-3        ESD1
+BLM15PD600SN1D    R0402           FB1
+BLM15PX221SN1D    R0402           FB2
+GH1.25-6PWB       WAFER-GH1.25-6PLBGH1
+GH1.25-4PWB       WAFER-GH1.25-4PLBGH2
+GH1.25-3PWT       WAFER-GH1.25-3PLBGH3
+47uH              IND-SMD_L6.0-W6.0L1
+4.7uH             L1008           L2
+NCP18XH103F03RB   NTC0402         NTC1
+Debug-SWD         Debug-SWD       PAD1
+PPM               PPM             PAD2
+NVMFS5C612NLAFT1G DFN-5_L4.9-W5.9 Q1
+NVMFS5C612NLAFT1G DFN-5_L4.9-W5.9 Q2
+NVMFS5C612NLAFT1G DFN-5_L4.9-W5.9 Q3
+NVMFS5C612NLAFT1G DFN-5_L4.9-W5.9 Q4
+NVMFS5C612NLAFT1G DFN-5_L4.9-W5.9 Q5
+NVMFS5C612NLAFT1G DFN-5_L4.9-W5.9 Q6
+133K              R0402           R1
+453K              R0402           R2
+88.7K             R0402           R3
+56.2K             R0402           R4
+49.9K             R0402           R5
+22.1K             R0402           R6
+120R              R0603           R7
+10K               R0402           R8
+0R                R0402           R9
+10K               R0402           R10
+2.2K              R0402           R11
+56R               R0402           R12
+56R               R0402           R13
+10K               R0402           R14
+20K               R0402           R15
+20K               R0402           R16
+56R               R0402           R17
+10R               R0402           R18
+10R               R0402           R19
+10R               R0402           R20
+4.7R              R0603           R21
+56R               R0402           R25
+10R               R0402           R26
+10R               R0402           R27
+10R               R0402           R28
+30.1K             R0402           R29
+30.1K             R0402           R30
+2K                R0402           R31
+30.1K             R0402           R35
+30.1K             R0402           R36
+2K                R0402           R37
+30.1K             R0402           R38
+30.1K             R0402           R39
+2K                R0402           R40
+30.1K             R0402           R41
+30.1K             R0402           R42
+2K                R0402           R43
+XL-1010RGBC-2812B RGB-SMD_4P      RGB1
+0.5mR             R2512           Rshunt1
+0.5mR             R2512           Rshunt2
+0.5mR             R2512           Rshunt3
+LM5164DDAR        SO-8            U1
+LMR50410XDBVR     SOT-23-6        U2
+ME6211C33M5G-N    SOT-23-5        U3
+HT0104SQER        VQFN-14_L3.5-W3.5-P0.50-BL-EP2.0U4
+SIT1042ATK/3      DFN-8           U5
+SN74LVC1T45DBVR   SOT-23-6        U6
+F280049CPMSR      LQFP-64_L10.0-W10.0U7
+INA181A1IDBVR     SOT-23-6        U8
+LMV321IDBVR       SOT-23-5        U9
+INA181A1IDBVR     SOT-23-6        U10
+INA181A1IDBVR     SOT-23-6        U11
+JSM6288T          TSSOP-20        U12
+CSTNE10M0G520000R0CRYSTAL-SMD_3P-L3.2-W1.3-P1.2-LX1
+EOS
+NET LIST
+
+NODENAME X2               $
+    U7        41  X1         3
+NODENAME X1               $
+    U7        42  X1         1
+NODENAME Udc              $
+    C58        2  R42        1  R43        2  U7         6
+NODENAME UC               $
+    C57        2  R39        1  R40        2  U7         7
+NODENAME UB               $
+    C55        2  R36        1  R37        2  U7         8
+NODENAME UA               $
+    C52        2  R30        1  R31        2  U7         9
+NODENAME TMS              $
+    PAD1       3  U7        38
+NODENAME TCK              $
+    PAD1       4  U7        36
+NODENAME STE              $
+    U4         2  U7        31
+NODENAME SOMI             $
+    U4         4  U7        34
+NODENAME SIMO             $
+    U4         5  U7        33
+NODENAME SCLK             $
+    U4         3  U7        62
+NODENAME RGB_S            $
+    R9         2  RGB1       4  U7        30
+NODENAME RGB              $
+    GH3        2  U6         3
+NODENAME PWM              $
+    PAD2       1  R12        1
+NODENAME POWER            $
+    C6         2  C34        1  C35        1  C36        1  C37        1  C38        1  C39        1  Q1         3  Q2         3  Q3         3  R41        2  U1         2  U1         3
+NODENAME PC               $
+    C56        1  Q3         2  Q6         3  R38        2  U12       12
+NODENAME PB               $
+    C54        1  Q2         2  Q5         3  R35        2  U12       15
+NODENAME PA               $
+    C51        1  Q1         2  Q4         3  R29        2  U12       18
+NODENAME nXRS             $
+    C29        1  R11        1  U7         3
+NODENAME NTC              $
+    C33        1  NTC1       1  R14        1  U7        19
+NODENAME NetR41-1         $
+    R41        1  R42        2
+NODENAME NetR38-1         $
+    R38        1  R39        2
+NODENAME NetR35-1         $
+    R35        1  R36        2
+NODENAME NetR29-1         $
+    R29        1  R30        2
+NODENAME NetR25-1         $
+    R25        1  U11        1
+NODENAME NetR17-1         $
+    R17        1  U10        1
+NODENAME NetR15-2         $
+    R15        2  R16        1  U9         1
+NODENAME NetR13-1         $
+    R13        1  U8         1
+NODENAME NetR10-1         $
+    R10        1  U7        35
+NODENAME NetR9-1          $
+    R9         1  RGB1       1  U6         4
+NODENAME NetR8-1          $
+    R8         1  U7        40
+NODENAME NetR4-1          $
+    R4         1  U1         4
+NODENAME NetR3-2          $
+    R3         2  R6         1  U2         3
+NODENAME NetQ6-1          $
+    Q6         1  R28        1
+NODENAME NetQ5-1          $
+    Q5         1  R27        1
+NODENAME NetQ4-1          $
+    Q4         1  R26        1
+NODENAME NetQ3-1          $
+    Q3         1  R20        1
+NODENAME NetQ2-1          $
+    Q2         1  R19        1
+NODENAME NetQ1-1          $
+    Q1         1  R18        1
+NODENAME NetGH1-5         $
+    GH1        5  U4        10
+NODENAME NetGH1-4         $
+    GH1        4  U4        11
+NODENAME NetGH1-3         $
+    GH1        3  U4        12
+NODENAME NetGH1-2         $
+    GH1        2  U4        13
+NODENAME NetD1-2          $
+    D1         2  D2         2  D3         2  R21        1
+NODENAME NetC56-2         $
+    C56        2  D3         1  U12       14
+NODENAME NetC54-2         $
+    C54        2  D2         1  U12       17
+NODENAME NetC51-2         $
+    C51        2  D1         1  U12       20
+NODENAME NetC27-2         $
+    C27        2  C45        2  C49        2  U8         5  U9         3  U9         4  U10        5  U11        5
+NODENAME NetC23-2         $
+    C23        2  U7        27
+NODENAME NetC20-2         $
+    C20        2  U7        44
+NODENAME NetC16-2         $
+    C16        2  C17        2  U7        16
+NODENAME NetC16-1         $
+    C16        1  C17        1  U7        17
+NODENAME NetC14-2         $
+    C14        2  U7        59
+NODENAME NetC12-2         $
+    C12        2  U7         4
+NODENAME NetC5-2          $
+    C5         2  R2         2  R5         1  U1         5
+NODENAME NetC3-2          $
+    C3         2  U2         1
+NODENAME NetC3-1          $
+    C3         1  L2         2  U2         6
+NODENAME NetC2-2          $
+    C2         2  U1         7
+NODENAME NetC2-1          $
+    C2         1  L1         2  R1         2  U1         8
+NODENAME NetC1-2          $
+    C1         2  C5         1  R1         1
+NODENAME INL_C            $
+    U7        61  U12        6
+NODENAME INL_B            $
+    U7        49  U12        5
+NODENAME INL_A            $
+    U7        51  U12        4
+NODENAME INH_C            $
+    U7        48  U12        3
+NODENAME INH_B            $
+    U7        50  U12        2
+NODENAME INH_A            $
+    U7        52  U12        1
+NODENAME IC_N             $
+    C50        1  Q6         2  Rshunt3    1  U11        3
+NODENAME IC               $
+    C53        1  R25        2  U7        13
+NODENAME IB_N             $
+    C46        1  Q5         2  Rshunt2    1  U10        3
+NODENAME IB               $
+    C47        1  R17        2  U7        14
+NODENAME IA_P             $
+    C4         2  C6         1  C7         2  C8         2  C9         2  C10        2  C11        2  C12        1  C13        1  C14        1  C15        1  C18        1  C19        1  C20        1  C21        1  C22        1  C23        1  C24        1  C25        2  C26        1  C27        1  C28        2  C29        2  C30        2  C31        2  C32        1  C33        2  C34        2  C35        2  C36        2  C37        2  C38        2  C39        2  C40        1  C41        2  C42        2  C43        2  C44        2  C45        1  C46        2  C47        2  C48        1  C49        1  C50        2  C52        1  C53        2  C55        1  C57        1  C58        1  C59        2  C60        2  ESD1       3  GH1        1  GH1        7  GH1        8  GH2        4  GH2        5  GH2        6  GH3        3  GH3        4  GH3        5  PAD1       2  PAD2       2  R4         2  R5         2  R6         2  R14        2  R16        2  R31        1  R37        1  R40        1  R43        1  RGB1       3  Rshunt1    2  Rshunt2    2  Rshunt3    2  U1         1  U1         9  U2         2  U3         2  U4        15  U5         2  U5         8  U5         9  U6         2  U6         5  U7         5  U7        10  U7        20  U7        21  U7        26  U7        45  U7        46  U7        55  U7        58  U8         2  U8         4  U9         2  U10        2  U10        4  U11        2  U11        4  U12        8  X1         2
+NODENAME IA_N             $
+    C28        1  Q4         2  Rshunt1    1  U8         3
+NODENAME IA               $
+    C31        1  R13        2  U7        15
+NODENAME GPIO33           $
+    C30        1  R12        2  U7        32
+NODENAME GL_C             $
+    R28        2  U12        9
+NODENAME GL_B             $
+    R27        2  U12       10
+NODENAME GL_A             $
+    R26        2  U12       11
+NODENAME GH_C             $
+    R20        2  U12       13
+NODENAME GH_B             $
+    R19        2  U12       16
+NODENAME GH_A             $
+    R18        2  U12       19
+NODENAME CANL             $
+    ESD1       2  GH2        3  R7         2  U5         6
+NODENAME CANH             $
+    ESD1       1  GH2        2  R7         1  U5         7
+NODENAME CAN_TX           $
+    U5         1  U7        37
+NODENAME CAN_RX           $
+    U5         4  U7        39
+NODENAME 12V              $
+    C1         1  C8         1  C9         1  C10        1  C59        1  C60        1  GH3        1  L1         1  R2         1  R21        2  U2         4  U2         5  U12        7
+NODENAME 5V               $
+    C4         1  C11        1  C18        2  C25        1  GH1        6  GH2        1  L2         1  R3         1  RGB1       2  U3         1  U3         3  U4        14  U5         3  U6         1
+NODENAME 3V3D             $
+    C13        2  C15        2  C22        2  C24        2  C44        1  FB2        1  U7        28  U7        43  U7        53  U7        60
+NODENAME 3V3A             $
+    C21        2  C42        1  FB1        1  U7        22
+NODENAME 3V3              $
+    C7         1  C19        2  C26        2  C32        2  C40        2  C41        1  C43        1  C48        2  FB1        2  FB2        2  NTC1       2  PAD1       1  R8         2  R10        2  R11        2  R15        1  U3         5  U4         1  U4         8  U5         5  U6         6  U8         6  U9         5  U10        6  U11        6
+EOS

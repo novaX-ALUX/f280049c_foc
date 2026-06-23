@@ -1,42 +1,83 @@
-# esc6288_revA -- FD6288/simple gate-driver Board Porting Checklist
+# esc6288_revA — bring-up checklist
 
-This directory was copied from the SDK `boostxl_drv8320rs/f28004x` as a **compilable template** (ensuring is01 can build first).
-The items below are the changes needed to adapt from DRV8320RS to the **FD6288/simple gate driver + your board**.
+Status: **ported from the final schematic + netlist; all build gates green** (SRC_CHECK,
+CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 7/7). The board is at fab;
+the items below are what to verify/tune once the prototype returns. Anything marked
+**[BENCH]** needs the hardware (scope/meter) to confirm.
 
-## 1. Gate Driver: DRV8320RS (SPI smart driver) → FD6288/simple gate driver
-- [x] Build chain: `DRV8320_SPI` and `drv8320.c/h` removed.
-- [x] `drivers/source/gate_driver.c` / `include/gate_driver.h` handle EN GPIO only.
-- [x] `include/board.h` centralizes EN/FAULT GPIOs.
-- [ ] Verify against schematic:
-  - `BOARD_GATE_ENABLE_GPIO`
-  - `BOARD_HAS_GATE_FAULT_INPUT`
-  - `BOARD_GATE_FAULT_GPIO`
+Hardware: F280049CPMSR (64-pin PM), gate driver **U12 = JSM6288T** (6 independent inputs,
+**no EN, no nFAULT**), 3× INA181A1 (gain 20) over 0.5 mΩ shunts (1.65 V mid-rail,
+bidirectional), 30.1k+30.1k+2k voltage dividers, **10 MHz** resonator. Full pin map is the
+header comment in `drivers/include/board.h`.
 
-## 2. Current Sensing: DRV8320 integrated CSA → FD6288 external shunt + op-amp
-- `HAL_NUM_CMPSS_CURRENT 3` (hal.h): confirm the number of shunt channels on your board (3/2/1-DC).
-- **Key scaling macros** (currently in `drivers/include/user.h`, feeds back into the current loop):
-  - `USER_ADC_FULL_SCALE_CURRENT_A` = full-scale current derived from (shunt resistance × op-amp gain × ADC reference)
-  - Update current sensing ADC channels and CMPSS comparators (overcurrent protection threshold) to match your board
-- Reference: the legacy project `../../esc_drv8300_foc` also uses a "simple driver + external shunt"; its current scaling approach can be borrowed directly.
+## Schematic-verified (implemented)
+- **Clock**: 10 MHz resonator → `SYSCTL_IMULT(20)` → 100 MHz; both clock asserts use a
+  board-local 10 MHz osc const (`hal.c`). *If SYSCLK were wrong everything downstream is 2× off.*
+- **PWM**: phase A=EPWM1 (GPIO0/1), B=EPWM2 (GPIO2/3), C=EPWM3 (GPIO4/5); `PWM_PHASE_ORDER`
+  default 0=ABC. Dead-band 50 cnt (~500 ns) — the JSM6288T does NOT insert dead time.
+- **Current**: `USER_ADC_FULL_SCALE_CURRENT_A = 330` (±165 A), offsets −165 A; PGAs disabled
+  (external INA path). IA=ADCINB15, IB=ADCINA1, IC=ADCINC2 (distinct cores).
+- **Voltage**: `USER_ADC_FULL_SCALE_VOLTAGE_V = 102.63`; Udc=ADCINA6, UA/UB/UC=B6/B3/C6.
+- **DAC outputs disabled** in `HAL_setupDACs` — DACA_OUT/DACB_OUT share the IA/IB sense pads
+  and would corrupt current sensing if enabled.
+- **Protection**: software OC on all 3 phases (1 ms product layer + a 20 kHz ISR backstop,
+  `ESC6288_ISR_OC_A = 60 A`) + **CMPSS3** hardware OC on phase C + **CMPSS5** DC-bus OV
+  (~56 V). No digital nFAULT trip (there is no fault pin).
+- **Safe-off without an enable pin**: EPWM trip-zone (OST). `HAL_enableDRV` is a no-op;
+  `HAL_setupFaults` leaves outputs OST-forced; **offset-cal does NOT clear the trip** (gates
+  stay off during cal, ADC still samples); only the arm path (`HAL_enablePWM`) un-trips;
+  `HAL_setPWMBrake` is stubbed (would defeat safe-off). Gate macros kept as `BOARD_GPIO_NONE`
+  sentinels; `gate_driver.c` hard-skips the sentinel.
+- **CAN**: CANA, GPIO37 TX / GPIO35 RX, 1 Mbit (`can_bridge.c`, mirrors launchxl).
+- **Aux drivers** (board-side, compiled + init-hooked from product_init): RC-PWM throttle on
+  eCAP1 (`rc_pwm.c`), MT6701 SSI on SPIA (`mt6701_ssi.c`), WS2812 RGB on GPIO12 (`rgb_led.c`).
 
-## 3. Voltage Sensing
-- `USER_ADC_FULL_SCALE_VOLTAGE_V`: update to match your board's DC bus voltage divider resistors.
+## Bench bring-up — do in order, gate driver kept off (forced TZ) until each step passes
+1. **Rails + clock**: power 3V3/5V/12V only (no motor). Confirm **SYSCLK = 100 MHz** (toggle a
+   GPIO at a known divide, scope it) — proves `IMULT(20)`. If it reads 50 MHz the resonator
+   assumption is wrong.
+2. **Idle outputs**: verify EPWM1/2/3 outputs idle LOW and a forced OST holds them low through
+   offset-cal; confirm `HAL_enablePWM` is the only thing that un-trips.
+3. **ADC offsets**: PWM idle → all 3 currents read ~1.65 V (~count 2048); Udc tracks the bus
+   through the 31.1× divider (apply a known bench voltage, check the reported V).
+4. **[BENCH] Dead-band / short-pulse** at low bus before spinning; watch the half-bridge Vds for
+   shoot-through; then close the current loop; then spin.
+5. **Protection tests**: trip phase-C CMPSS3 OC, DC-bus CMPSS5 OV (~56 V), and the ISR software
+   OC on phases A/B; confirm each forces all outputs low and latches `moduleOverCurrent`.
+6. **CAN / encoder / RC-PWM / RGB**: DroneCAN node at 1 Mbit; MT6701 angle reads; RC-PWM
+   1–2 ms maps to throttle; RGB status colors.
 
-## 4. PWM / Dead-band
-- FD6288 has an **internal fixed dead-band** → the MCU-side dead-band can be set to a very small or minimum value (deadband setting in hal.c).
-- Confirm FD6288 input mode (6-wire HIN/LIN or 3-wire PWM + enable), and update the EPWM channel mapping accordingly.
+## [BENCH] Confirm / tune
+- **JSM6288T dead time** — datasheet (`docs/JSM6288T.pdf`) confirms independent 6-input
+  high/low-side drive (no shoot-through interlock); ton/toff ~120-250 ns. The MCU 500 ns
+  dead-band (`HAL_PWM_DBRED_CNT/DBFED_CNT`, `hal.h`) is required; measure Vds and tune down.
+- **FET NVMFS5C612NL Vds rating** — this is the hard OV ceiling. Confirm the 12S OV
+  (`HAL_BUS_OV_CMPSS_DACH` ≈ 56 V, and product `vbus_ov_set = 54`) sits safely below it.
+- **OC thresholds** — product `oc_set_A = 30` and `ESC6288_ISR_OC_A = 60` are conservative
+  bench values; raise toward the motor/shunt rating after validation.
+- **Bus nominal / UV** — currently 48 V nominal, UV 18 V (bench-friendly); raise UV for flight.
+- **MT6701 SSI** (`mt6701_ssi.c`) — SPI mode set from the datasheet (`docs/MT6701CT-STD.PDF`,
+  sec 6.8): **POL1PHA0**, 24-bit frame (14-bit angle + 4-bit Mg status + 6-bit CRC, poly
+  X^6+X+1). The driver reads the angle correctly (top 14 of a 16-bit word). Remaining: full
+  Mg-status + CRC6 validation (needs CSN held low across a 16+8-bit read via manual GPIO STE)
+  and wiring raw code → `mt6701_update()` → `esc_feedback_t` in the product.
+- **RGB WS2812 timing** (`rgb_led.c`) — the bit-bang loop counts are approximate; scope GPIO12
+  and tune `WS_*_LOOPS` to the WS2812B timing.
+- **NTC → °C** — NTC is sampled (ADCINC3) but not yet converted; product temperature is a 25 °C
+  placeholder, so over-temp protection is inert until the NCP18XH103 curve is added.
 
-## 5. Pin Summary Table
-- [x] `drivers/include/board.h` added.
-- [ ] Continue migrating ADC/EPWM/CMPSS channel assignments from SDK template macros into `board.h`.
+## Rev-B hardware note (not fixable in firmware on this rev)
+The phase-A and phase-B current-sense op-amp outputs land on **ADCIN A0/B15/C15 and A1**, which
+have **no CMPSS comparator** on F28004x — so only phase C and the DC bus get hardware
+cycle-by-cycle trips. This rev relies on software OC for A/B by design (user-approved). For a
+rev B, route the IA/IB sense onto CMPSS-capable pads (e.g. B2/A4) to restore 3-phase hardware OC.
 
-## 6. DroneCAN / CAN transport
-- [ ] CAN TX/RX pins not yet known (schematic pending). Once fixed, define `BOARD_CAN_BASE`
-  (CANA or CANB), `BOARD_CAN_TX/RX_GPIO` + `_PINCFG`, `BOARD_CAN_BITRATE` (1 Mbit), `BOARD_CAN_INT`
-  in `board.h` (mirror `launchxl_drv8305evm/board.h`), then add
-  `drivers/source/can_bridge.c` and wire `can_bridge_init()/enable_ints()` from the product main.
-- The bridge logic itself is board-agnostic (driverlib CAN + the `dronecan_fifo` queue); only
-  the pins differ. The launchxl_drv8305evm bridge is the reference implementation.
-
-## Information Needed
-PWM input mode / number of shunts · resistance · op-amp gain / presence of nFAULT / DC bus voltage divider ratio → provide these to complete the port precisely.
+## Build / verify
+```bash
+BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1     bash build.sh   # pure src/ modules
+BOARD=esc6288_revA                   CAN_CHECK=1     bash build.sh   # CAN bridge + comms
+BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT_CHECK=1 bash build.sh   # product main + foc_bridge
+BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1       bash build.sh   # full product link
+BOARD=esc6288_revA LAB=all bash build.sh                              # 12-lab regression
+bash tools/test/run.sh                                               # host tests (incl. src/ purity)
+```
