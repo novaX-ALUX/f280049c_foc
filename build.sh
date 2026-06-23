@@ -265,6 +265,9 @@ if [ "$PRODUCT" = "1" ]; then
   # board-extra source (DRV8305 SPI driver), same as the lab build
   case "$BOARD" in
     launchxl_drv8305evm) C_SRCS+=( "$BD/drivers/source/drv8305.c" ) ;;
+    esc6288_revA) C_SRCS+=( "$BD/drivers/source/rc_pwm.c" \
+                            "$BD/drivers/source/mt6701_ssi.c" \
+                            "$BD/drivers/source/rgb_led.c" ) ;;
   esac
   # product layer: pure src/ modules + the board CAN bridge
   mapfile -t prod_srcs < <(find "$HERE/src/app" "$HERE/src/comms" "$HERE/src/encoder" "$HERE/src/common" -name '*.c' | sort)
@@ -322,10 +325,16 @@ C_SRCS=(
   "$MCSDK/solutions/common/sensorless_foc/source/${LAB}.c"
 )
 
-# Board-specific extra sources/defines: DRV8305EVM needs the SPI register driver
+# Board-specific extra sources/defines: DRV8305EVM needs the SPI register driver;
+# esc6288_revA has the RC-PWM (eCAP), MT6701 SSI, and RGB board drivers.
 case "$BOARD" in
   launchxl_drv8305evm)
     C_SRCS+=( "$BD/drivers/source/drv8305.c" )   # DRV8305_SPI define is set in the shared section above
+    ;;
+  esc6288_revA)
+    C_SRCS+=( "$BD/drivers/source/rc_pwm.c" \
+              "$BD/drivers/source/mt6701_ssi.c" \
+              "$BD/drivers/source/rgb_led.c" )
     ;;
 esac
 

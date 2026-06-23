@@ -72,23 +72,26 @@ extern "C" {
 
 //! \brief Defines the maximum voltage at the AD converter
 //!        full scale voltage of AD converter
-#define USER_ADC_FULL_SCALE_VOLTAGE_V         ((float32_t)(57.528))
+//!        esc6288_revA divider: 30.1k + 30.1k + 2.0k -> 31.1x, 3.3V ref -> 102.63 V FS.
+#define USER_ADC_FULL_SCALE_VOLTAGE_V         ((float32_t)(102.63))
 #define USER_ADC_FULL_SCALE_DCBUS_VOLTAGE_V   (USER_ADC_FULL_SCALE_VOLTAGE_V)
 
 
 //! \brief Defines the maximum current at the AD converter
-//!        TODO: replace with esc6288_revA shunt and amplifier scaling.
-#define USER_ADC_FULL_SCALE_CURRENT_A         ((float32_t)(42.843))
+//!        esc6288_revA front-end: 0.5 mOhm shunt x INA181A1 (gain 20), 3.3V ref,
+//!        1.65V mid-rail bias (bidirectional). FS = 3.3 / (0.0005 * 20) = 330 A span (+/-165 A).
+#define USER_ADC_FULL_SCALE_CURRENT_A         ((float32_t)(330.0))
 
 //! \brief Defines the analog voltage filter pole location, Hz
 //!
 #define USER_VOLTAGE_FILTER_POLE_Hz           ((float32_t)(338.357))
 
 
-//! \brief ADC current offsets for A, B, and C phases
-#define IA_OFFSET_A    (-21.6932182f)   // ~=0.5*USER_ADC_FULL_SCALE_CURRENT_A
-#define IB_OFFSET_A    (-21.7333469f)   // ~=0.5*USER_ADC_FULL_SCALE_CURRENT_A
-#define IC_OFFSET_A    (-21.6108341f)   // ~=0.5*USER_ADC_FULL_SCALE_CURRENT_A
+//! \brief ADC current offsets for A, B, and C phases (mid-rail bias seed; runtime
+//!        offset calibration refines these at power-on). = -0.5 * FS = -165.0 A.
+#define IA_OFFSET_A    (-165.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
+#define IB_OFFSET_A    (-165.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
+#define IC_OFFSET_A    (-165.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
 
 
 //! \brief ADC voltage offsets for A, B, and C phases

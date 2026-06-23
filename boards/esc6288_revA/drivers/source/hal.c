@@ -58,6 +58,11 @@
 // **************************************************************************
 // the defines
 
+//! \brief esc6288_revA external oscillator frequency (10 MHz CSTNE10M0G resonator).
+//!        The SDK device.h hardcodes DEVICE_OSCSRC_FREQ to 20 MHz (LaunchPad crystal),
+//!        so the clock-verify asserts use this board-local value instead.
+#define ESC6288_OSCSRC_FREQ     (10000000U)
+
 
 // **************************************************************************
 // the globals
@@ -185,6 +190,12 @@ void HAL_enableDRV(HAL_Handle handle)
 {
   HAL_Obj *obj = (HAL_Obj *)handle;
 
+  // esc6288_revA (JSM6288T) has no gate-enable pin, so "enabling the driver" must
+  // NOT bring the outputs live here. product_main calls HAL_enableDRV() before the
+  // PWM is armed and before HAL_disablePWM(); the outputs stay held off by the EPWM
+  // trip-zone (OST) and only HAL_enablePWM() -- the real arm path -- clears the trip.
+  // GATE_DRIVER_enable() only records software state; its GPIO write is a
+  // sentinel-guarded no-op (BOARD_GATE_ENABLE_GPIO == BOARD_GPIO_NONE).
   GATE_DRIVER_enable(obj->gateDriverHandle);
 
   return;
@@ -240,20 +251,26 @@ HAL_Handle HAL_init(void *pMemory,const size_t numBytes)
     obj->dmaChHandle[3] = DMA_CH4_BASE;   //!< the DMA Channel handle
 
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
-    // initialize PWM handles for Motor 1
-    obj->pwmHandle[0] = EPWM6_BASE;       //!< the PWM handle, GPIO10/GPIO11
-    obj->pwmHandle[1] = EPWM5_BASE;       //!< the PWM handle, GPIO8/GPIO9
-    obj->pwmHandle[2] = EPWM3_BASE;       //!< the PWM handle, GPIO4/GPIO5
+    // esc6288_revA: phase A=EPWM1 (GPIO0/1), B=EPWM2 (GPIO2/3), C=EPWM3 (GPIO4/5)
+    obj->pwmHandle[0] = EPWM1_BASE;       //!< phase A, GPIO0(H)/GPIO1(L)
+    obj->pwmHandle[1] = EPWM2_BASE;       //!< phase B, GPIO2(H)/GPIO3(L)
+    obj->pwmHandle[2] = EPWM3_BASE;       //!< phase C, GPIO4(H)/GPIO5(L)
 
-    // initialize PGA handle
-    obj->pgaHandle[0] = PGA5_BASE;        //!< the PGA handle
-    obj->pgaHandle[1] = PGA3_BASE;        //!< the PGA handle
-    obj->pgaHandle[2] = PGA1_BASE;        //!< the PGA handle
+    // PGA handles: unused on esc6288 (external INA181 drives the ADC pins directly;
+    // HAL_setupPGAs disables them). Kept assigned only for the disable loop.
+    obj->pgaHandle[0] = PGA1_BASE;        //!< the PGA handle (disabled)
+    obj->pgaHandle[1] = PGA3_BASE;        //!< the PGA handle (disabled)
+    obj->pgaHandle[2] = PGA5_BASE;        //!< the PGA handle (disabled)
 
-    // initialize CMPSS handle
-    obj->cmpssHandle[0] = CMPSS5_BASE;    //!< the CMPSS handle
-    obj->cmpssHandle[1] = CMPSS3_BASE;    //!< the CMPSS handle
-    obj->cmpssHandle[2] = CMPSS1_BASE;    //!< the CMPSS handle
+    // CMPSS: only phase-C current (ADCINC2) has a comparator path -> CMPSS3. Phases
+    // A/B (ADCINB15/ADCINA1) have NO CMPSS (software OC). cmpssHandle[0] is the single
+    // current-OC channel; [1]/[2] mirror it so any legacy 3-wide loop is a harmless
+    // no-op. DC-bus over-voltage uses a SEPARATE handle (CMPSS5, ADCINA6) so the
+    // runtime current-threshold loop (product_main) never overwrites the OV trip.
+    obj->cmpssHandle[0] = CMPSS3_BASE;    //!< phase-C current OC (ADCINC2)
+    obj->cmpssHandle[1] = CMPSS3_BASE;    //!< (mirror, unused)
+    obj->cmpssHandle[2] = CMPSS3_BASE;    //!< (mirror, unused)
+    obj->cmpssBusOvHandle = CMPSS5_BASE;  //!< DC-bus over-voltage (ADCINA6)
 #endif
 
 #if (BOOST_to_LPD == BOOSTX_to_J5_J6)
@@ -282,9 +299,11 @@ HAL_Handle HAL_init(void *pMemory,const size_t numBytes)
     obj->timerHandle[1] = CPUTIMER1_BASE;
     obj->timerHandle[2] = CPUTIMER2_BASE;
 
-    // initialize pwmdac handles
-    obj->pwmDACHandle[0] = EPWM7_BASE;
-    obj->pwmDACHandle[1] = EPWM7_BASE;
+    // PWM-DAC handles. EPWM7 is repurposed for the RGB status LED (GPIO12=EPWM7A)
+    // on esc6288, so the debug PWM-DACs must not use it. PWMDAC_ENABLE is not defined
+    // for this board (HAL_setupPWMDACs is not built); point these only at EPWM8.
+    obj->pwmDACHandle[0] = EPWM8_BASE;
+    obj->pwmDACHandle[1] = EPWM8_BASE;
     obj->pwmDACHandle[2] = EPWM8_BASE;
     obj->pwmDACHandle[3] = EPWM8_BASE;
 
@@ -335,28 +354,22 @@ void HAL_setParams(HAL_Handle handle)
     // init vector table
     Interrupt_initVectorTable();
 
-    // Set up PLL control and clock dividers
-    // PLLSYSCLK = 20MHz (XTAL_OSC) * 10 (IMULT) * 1 (FMULT) / 2 (PLLCLK_BY_2)
-//    SysCtl_setClock(SYSCTL_OSCSRC_XTAL |
-//                    SYSCTL_IMULT(10) |
-//                    SYSCTL_FMULT_NONE |
-//                    SYSCTL_SYSDIV(2) |
-//                    SYSCTL_PLL_ENABLE);
-
+    // Set up PLL control and clock dividers.
+    // esc6288_revA has a 10 MHz resonator (CSTNE10M0G), NOT the 20 MHz LaunchPad
+    // crystal the SDK device.h assumes. PLLSYSCLK = 10MHz * 20 (IMULT) / 2 = 100 MHz
+    // (same 200 MHz VCO as the stock 20MHz*10/2). IMULT(10) would give only 50 MHz.
     SysCtl_setClock(SYSCTL_OSCSRC_XTAL |
-                    SYSCTL_IMULT(10) |
+                    SYSCTL_IMULT(20) |
                     SYSCTL_FMULT_NONE |
                     SYSCTL_SYSDIV(2) |
                     SYSCTL_PLL_ENABLE);
 
-    // These asserts will check that the #defines for the clock rates in
-    // device.h match the actual rates that have been configured. If they do
-    // not match, check that the calculations of DEVICE_SYSCLK_FREQ and
-    // DEVICE_LSPCLK_FREQ are accurate. Some examples will not perform as
-    // expected if these are not correct.
-    //
-    ASSERT(SysCtl_getClock(DEVICE_OSCSRC_FREQ) == DEVICE_SYSCLK_FREQ);
-    ASSERT(SysCtl_getLowSpeedClock(DEVICE_OSCSRC_FREQ) == DEVICE_LSPCLK_FREQ);
+    // These asserts verify the configured rates. DEVICE_OSCSRC_FREQ in the SDK
+    // device.h is hardcoded to 20 MHz, so pass the real 10 MHz source to BOTH
+    // asserts. DEVICE_SYSCLK_FREQ/DEVICE_LSPCLK_FREQ stay 100/25 MHz, which is what
+    // we actually produce, so all downstream timing (CAN/SPI/timers) is correct.
+    ASSERT(SysCtl_getClock(ESC6288_OSCSRC_FREQ) == DEVICE_SYSCLK_FREQ);
+    ASSERT(SysCtl_getLowSpeedClock(ESC6288_OSCSRC_FREQ) == DEVICE_LSPCLK_FREQ);
 
 
     // run the device calibration
@@ -475,45 +488,47 @@ void HAL_setupADCs(HAL_Handle handle)
     SysCtl_delay(1000U);
 
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
-    // configure the interrupt sources
-    // configure the ample window to 15 system clock cycle wide by assigning 14
-    // to the ACQPS of ADCSOCxCTL Register.
-    // RB2/B1
+    // esc6288_revA ADC map (external INA181 current sense, resistor-divider voltage
+    // sense; ACQPS=14 -> 15 SYSCLK sample window). The 3 phase currents are on
+    // distinct cores (A/B/C) for simultaneous sampling. The EOC interrupt stays on
+    // ADCB INT1 (matches HAL_enableADCInts) at the last ADCB SOC, which completes
+    // after the currents and the DC-bus conversion are done.
+    //   IA = ADCINB15 (ADCB SOC0)   IB = ADCINA1 (ADCA SOC0)   IC = ADCINC2 (ADCC SOC0)
+    //   Udc= ADCINA6  (ADCA SOC1)   UA = ADCINB6 (ADCB SOC1)   UB = ADCINB3 (ADCB SOC2)
+    //   UC = ADCINC6  (ADCC SOC1)   NTC= ADCINC3 (ADCC SOC2)
+    // The RC-PWM throttle is captured by eCAP1, not an ADC channel.
     ADC_setInterruptSource(obj->adcHandle[1], ADC_INT_NUMBER1, ADC_SOC_NUMBER2);
 
-    // configure the SOCs for hvkit_rev1p1
-    // ISENA - PGA5->A14->RA0
-    ADC_setupSOC(obj->adcHandle[0], ADC_SOC_NUMBER0, ADC_TRIGGER_EPWM6_SOCA,
-                 ADC_CH_ADCIN14, HAL_ADC_SAMPLE_WINDOW);
+    // phase A current - ADCINB15
+    ADC_setupSOC(obj->adcHandle[1], ADC_SOC_NUMBER0, ADC_TRIGGER_EPWM1_SOCA,
+                 ADC_CH_ADCIN15, HAL_ADC_SAMPLE_WINDOW);
 
-    // ISENB - PGA3->C7->RC0
-    ADC_setupSOC(obj->adcHandle[2], ADC_SOC_NUMBER0, ADC_TRIGGER_EPWM6_SOCA,
-                 ADC_CH_ADCIN7, HAL_ADC_SAMPLE_WINDOW);
-
-    // ISENC - PGA1->B7->RB0
-    ADC_setupSOC(obj->adcHandle[1], ADC_SOC_NUMBER0, ADC_TRIGGER_EPWM6_SOCA,
-                 ADC_CH_ADCIN7, HAL_ADC_SAMPLE_WINDOW);
-
-    // VSENA - A5->RA1
-    ADC_setupSOC(obj->adcHandle[0], ADC_SOC_NUMBER1, ADC_TRIGGER_EPWM6_SOCA,
-                 ADC_CH_ADCIN5, HAL_ADC_SAMPLE_WINDOW);
-
-    // VSENB - B0->RB1
-    ADC_setupSOC(obj->adcHandle[1], ADC_SOC_NUMBER1, ADC_TRIGGER_EPWM6_SOCA,
-                 ADC_CH_ADCIN0, HAL_ADC_SAMPLE_WINDOW);
-
-    // VSENC - C2->RC1
-    ADC_setupSOC(obj->adcHandle[2], ADC_SOC_NUMBER1, ADC_TRIGGER_EPWM6_SOCA,
-                 ADC_CH_ADCIN2, HAL_ADC_SAMPLE_WINDOW);
-
-    // VSENVM - B1->RB2. hvkit board has capacitor on Vbus feedback, so
-    // the sampling doesn't need to be very long to get an accurate value
-    ADC_setupSOC(obj->adcHandle[1], ADC_SOC_NUMBER2, ADC_TRIGGER_EPWM6_SOCA,
+    // phase B current - ADCINA1
+    ADC_setupSOC(obj->adcHandle[0], ADC_SOC_NUMBER0, ADC_TRIGGER_EPWM1_SOCA,
                  ADC_CH_ADCIN1, HAL_ADC_SAMPLE_WINDOW);
 
-    // Vthrottle - B3->RB3. hvkit board has capacitor on Vbus feedback, so
-    // the sampling doesn't need to be very long to get an accurate value
-    ADC_setupSOC(obj->adcHandle[1], ADC_SOC_NUMBER3, ADC_TRIGGER_EPWM6_SOCA,
+    // phase C current - ADCINC2
+    ADC_setupSOC(obj->adcHandle[2], ADC_SOC_NUMBER0, ADC_TRIGGER_EPWM1_SOCA,
+                 ADC_CH_ADCIN2, HAL_ADC_SAMPLE_WINDOW);
+
+    // DC bus voltage - ADCINA6
+    ADC_setupSOC(obj->adcHandle[0], ADC_SOC_NUMBER1, ADC_TRIGGER_EPWM1_SOCA,
+                 ADC_CH_ADCIN6, HAL_ADC_SAMPLE_WINDOW);
+
+    // phase A voltage - ADCINB6
+    ADC_setupSOC(obj->adcHandle[1], ADC_SOC_NUMBER1, ADC_TRIGGER_EPWM1_SOCA,
+                 ADC_CH_ADCIN6, HAL_ADC_SAMPLE_WINDOW);
+
+    // phase B voltage - ADCINB3
+    ADC_setupSOC(obj->adcHandle[1], ADC_SOC_NUMBER2, ADC_TRIGGER_EPWM1_SOCA,
+                 ADC_CH_ADCIN3, HAL_ADC_SAMPLE_WINDOW);
+
+    // phase C voltage - ADCINC6
+    ADC_setupSOC(obj->adcHandle[2], ADC_SOC_NUMBER1, ADC_TRIGGER_EPWM1_SOCA,
+                 ADC_CH_ADCIN6, HAL_ADC_SAMPLE_WINDOW);
+
+    // board temperature (NTC) - ADCINC3
+    ADC_setupSOC(obj->adcHandle[2], ADC_SOC_NUMBER2, ADC_TRIGGER_EPWM1_SOCA,
                  ADC_CH_ADCIN3, HAL_ADC_SAMPLE_WINDOW);
 #endif
 
@@ -564,17 +579,13 @@ void HAL_setupPGAs(HAL_Handle handle)
 
     uint16_t  cnt;
 
-    // For Motor_1/Motor_2
+    // esc6288_revA senses current with external INA181 amplifiers whose outputs feed
+    // the ADC pins directly. The on-chip PGAs must stay OFF so the ADC samples those
+    // raw pins (IA=ADCINB15, IB=ADCINA1, IC=ADCINC2); an enabled PGA would contend
+    // with the external amplifier on the shared pad.
     for(cnt = 0; cnt < 3; cnt++)
     {
-        // Set a gain of 12 to PGA1/3/5
-        PGA_setGain(obj->pgaHandle[cnt], PGA_GAIN_12);
-
-        // No filter resistor for output
-        PGA_setFilterResistor(obj->pgaHandle[cnt], PGA_LOW_PASS_FILTER_DISABLED);
-
-        // Enable PGA1/3/5
-        PGA_enable(obj->pgaHandle[cnt]);
+        PGA_disable(obj->pgaHandle[cnt]);
     }
 
     return;
@@ -587,11 +598,13 @@ void HAL_setupCMPSSs(HAL_Handle handle)
 
     uint16_t  cnt;
 
-    // Set the initial value to half of ADC range
+    // Phase-C current OC seed (mid-rail +/- ~1/4 FS). The FOC overwrites these every
+    // loop via HAL_setCMPSSDACValueHigh/Low over HAL_NUM_CMPSS_CURRENT (=1) handles
+    // (product_main). Phases A/B have no CMPSS path and rely on software OC.
     uint16_t cmpsaDACH = 2048 + 1024;
     uint16_t cmpsaDACL = 2048 - 1024;
 
-    for(cnt = 0; cnt < 3; cnt++)
+    for(cnt = 0; cnt < HAL_NUM_CMPSS_CURRENT; cnt++)
     {
         // Enable CMPSS and configure the negative input signal to come
         // from the DAC
@@ -636,31 +649,40 @@ void HAL_setupCMPSSs(HAL_Handle handle)
         CMPSS_clearFilterLatchLow(obj->cmpssHandle[cnt]);
     }
 
+    // DC-bus over-voltage on a SEPARATE handle (CMPSS5, ADCINA6), configured once and
+    // never touched by the runtime current-threshold loop. High comparator trips when
+    // Vbus exceeds HAL_BUS_OV_CMPSS_DACH (~56 V at 102.63 V FS). The low side is left
+    // unconfigured/unrouted (the bus is unipolar), so only the high trip can fire.
+    CMPSS_enableModule(obj->cmpssBusOvHandle);
+    CMPSS_configHighComparator(obj->cmpssBusOvHandle, CMPSS_INSRC_DAC);
+    CMPSS_configDAC(obj->cmpssBusOvHandle, CMPSS_DACREF_VDDA |
+                    CMPSS_DACVAL_SYSCLK | CMPSS_DACSRC_SHDW);
+    CMPSS_setDACValueHigh(obj->cmpssBusOvHandle, HAL_BUS_OV_CMPSS_DACH);
+    CMPSS_configFilterHigh(obj->cmpssBusOvHandle, 4, 3, 2);
+    CMPSS_initFilterHigh(obj->cmpssBusOvHandle);
+    CMPSS_configOutputsHigh(obj->cmpssBusOvHandle, CMPSS_TRIP_FILTER |
+                            CMPSS_TRIPOUT_FILTER |
+                            CMPSS_OR_ASYNC_OUT_W_FILT);
+    CMPSS_clearFilterLatchHigh(obj->cmpssBusOvHandle);
+
     //
-    // Refer to the Table 9-2 in Chapter 9 of TMS320F28004x
-    // Technical Reference Manual (SPRUI33B), to configure the ePWM X-Bar
+    // ePWM X-BAR (TRM Table 9-2). esc6288: phase-C current OC (CMPSS3, ADCINC2) -> TRIP8;
+    // DC-bus over-voltage (CMPSS5, ADCINA6) -> TRIP9. HAL_setupFaults OR-combines
+    // TRIPIN7|8|9 into the DC trip, so either one forces all PWM outputs low.
     //
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
-    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_1, 4);
-    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_1, 4);
+    // CMPSS3 HP/LP mux select 1 -> ADCINC2 (phase C current); CMPSS5 HP select 0 -> ADCINA6
+    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_3, 1);
+    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_3, 1);
+    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_5, 0);
 
-    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_3, 4);
-    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_3, 4);
-
-    ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_5, 4);
-    ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_5, 4);
-
-    // Configure TRIP9 to be CTRIP1H and CTRIP1L using the ePWM X-BAR
-    XBAR_setEPWMMuxConfig(XBAR_TRIP9, XBAR_EPWM_MUX08_CMPSS5_CTRIPH_OR_L);
-    XBAR_enableEPWMMux(XBAR_TRIP9, XBAR_MUX08);
-
-    // Configure TRIP7 to be CTRIP1H and CTRIP1L using the ePWM X-BAR
-    XBAR_setEPWMMuxConfig(XBAR_TRIP7, XBAR_EPWM_MUX00_CMPSS1_CTRIPH_OR_L);
-    XBAR_enableEPWMMux(XBAR_TRIP7, XBAR_MUX00);
-
-    // Configure TRIP8 to be CTRIP1H and CTRIP1L using the ePWM X-BAR
+    // phase-C current overcurrent (bidirectional) -> TRIP8
     XBAR_setEPWMMuxConfig(XBAR_TRIP8, XBAR_EPWM_MUX04_CMPSS3_CTRIPH_OR_L);
     XBAR_enableEPWMMux(XBAR_TRIP8, XBAR_MUX04);
+
+    // DC-bus over-voltage (high only) -> TRIP9
+    XBAR_setEPWMMuxConfig(XBAR_TRIP9, XBAR_EPWM_MUX08_CMPSS5_CTRIPH);
+    XBAR_enableEPWMMux(XBAR_TRIP9, XBAR_MUX08);
 #endif
 
 #if (BOOST_to_LPD == BOOSTX_to_J5_J6)
@@ -694,21 +716,13 @@ void HAL_setupDACs(HAL_Handle handle)
     HAL_Obj *obj = (HAL_Obj *)handle;
 
 #if (BOOST_to_LPD == BOOSTX_to_J1_J2)
-    // Set the DAC gain to 2
-    DAC_setGainMode(obj->dacHandle[0], DAC_GAIN_TWO);
-
-    // Set ADC voltage reference
-    DAC_setReferenceVoltage(obj->dacHandle[0], DAC_REF_ADC_VREFHI);
-
-    // Set load mode for DAC on next SYSCLK
-    DAC_setLoadMode(obj->dacHandle[0], DAC_LOAD_SYSCLK);
-
-    // Enable DAC output
-    DAC_enableOutput(obj->dacHandle[0]);
-
-    // Set the DAC Shadow Output Value
-    // Set the initial value to half of ADC range for 1.65V output
-    DAC_setShadowValue(obj->dacHandle[0], 2048U);
+    // esc6288_revA: DO NOT enable the on-chip DAC outputs. DACA_OUT is on the ADCINA0
+    // pad and DACB_OUT on the ADCINA1 pad -- the same physical pins this board uses for
+    // IA (ADCINB15 shares the A0 pad) and IB (ADCINA1) current sense. Driving them would
+    // corrupt current sensing. The 1.65 V current-sense reference is generated externally
+    // by the LMV321 (U9), not the MCU DAC. dacHandle stays valid for HAL_setDACValue()
+    // shadow writes, which have no pin effect while the output stays disabled.
+    (void)obj;
 #endif
 
 #if (BOOST_to_LPD == BOOSTX_to_J5_J6)
@@ -743,15 +757,12 @@ void HAL_setupFaults(HAL_Handle handle)
     // -One shot fault trip zone
     // These trips need to be repeated for EPWM1 ,2 & 3
 
-    // configure the input x bar for TZ2 to GPIO, where Over Current is connected
-    XBAR_setInputPin(XBAR_INPUT2, HAL_PM_nFAULT_GPIO);
-    XBAR_lockInput(XBAR_INPUT2);
-
+    // esc6288_revA has NO digital nFAULT pin (JSM6288T), so there is no GPIO trip
+    // input. Protection is: the CMPSS DC trip (phase-C OC + bus OV via TRIPIN8/9) and
+    // the software OST force (used by software OC and HAL_disablePWM) -> all outputs low.
     for(cnt=0;cnt<3;cnt++)
     {
-        EPWM_enableTripZoneSignals(obj->pwmHandle[cnt],
-                                   EPWM_TZ_SIGNAL_CBC6);
-
+        // OST (one-shot) is the software / DC-trip safe-off mechanism
         EPWM_enableTripZoneSignals(obj->pwmHandle[cnt],
                                    EPWM_TZ_SIGNAL_OSHT2);
 
@@ -815,16 +826,18 @@ void HAL_setupFaults(HAL_Handle handle)
                                EPWM_TZ_ACTION_EVENT_TZB,
                                EPWM_TZ_ACTION_LOW);
 
-        // Clear any high comparator digital filter output latch
-        CMPSS_clearFilterLatchHigh(obj->cmpssHandle[cnt]);
+        // Clear the phase-C current comparator latches (cmpssHandle[*] all alias CMPSS3)
+        CMPSS_clearFilterLatchHigh(obj->cmpssHandle[0]);
+        CMPSS_clearFilterLatchLow(obj->cmpssHandle[0]);
 
-        // Clear any low comparator digital filter output latch
-        CMPSS_clearFilterLatchLow(obj->cmpssHandle[cnt]);
-
-        // Clear any spurious fault
-        EPWM_clearTripZoneFlag(obj->pwmHandle[cnt],
-                                        HAL_TZ_INTERRUPT_ALL);
+        // Hold this PWM in the tripped (OST) state. esc6288 has no gate-enable pin, so
+        // safe-off MUST persist from setup through offset-cal until the real arm path
+        // (HAL_enablePWM) clears the trip. Do NOT clear the TZ flag here.
+        EPWM_forceTripZoneEvent(obj->pwmHandle[cnt], EPWM_TZ_FORCE_EVENT_OST);
     }
+
+    // Clear the DC-bus over-voltage comparator latch (separate CMPSS5 handle)
+    CMPSS_clearFilterLatchHigh(obj->cmpssBusOvHandle);
 
     return;
 } // end of HAL_setupFaults() function
@@ -896,9 +909,9 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(8, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(8, GPIO_PIN_TYPE_STD);
 
-    // EPWM5B->VL for J1/J2 Connection
+    // GPIO9->SPIA-CLK (MT6701 encoder, esc6288 GH1 connector via HT0104 level shifter)
     GPIO_setMasterCore(9, GPIO_CORE_CPU1);
-    GPIO_setPinConfig(GPIO_9_EPWM5B);
+    GPIO_setPinConfig(GPIO_9_SPIA_CLK);
     GPIO_setDirectionMode(9, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(9, GPIO_PIN_TYPE_STD);
 
@@ -908,11 +921,11 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(10, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(10, GPIO_PIN_TYPE_STD);
 
-    // EPWM6B->UL for J1/J2 Connection
+    // GPIO11->SPIA-STE (MT6701 encoder chip-select, esc6288 GH1 connector)
     GPIO_setMasterCore(11, GPIO_CORE_CPU1);
-    GPIO_setPinConfig(GPIO_11_EPWM6B);
+    GPIO_setPinConfig(GPIO_11_SPIA_STE);
     GPIO_setDirectionMode(11, GPIO_DIR_MODE_OUT);
-    GPIO_setPadConfig(11, GPIO_PIN_TYPE_STD);
+    GPIO_setPadConfig(11, GPIO_PIN_TYPE_PULLUP);
 
     // EPWM8B->PWM-DAC3
     GPIO_setMasterCore(12, GPIO_CORE_CPU1);
@@ -920,14 +933,12 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(12, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(12, GPIO_PIN_TYPE_STD);
 
-    // GPIO13->gate enable (active-high). Keep disabled until HAL_enableDRV().
-    // STD (no internal pull-up): an internal PU would bias an active-high EN toward
-    // "enabled" during reset/pre-config. Rely on an external pull-down for fail-safe off.
-    GPIO_setMasterCore(HAL_DRV_EN_GATE_GPIO, GPIO_CORE_CPU1);
+    // GPIO13: not connected on esc6288_revA (JSM6288T has no enable pin). Leave it a
+    // high-impedance input. The gate "enable" is the EPWM trip-zone, not a GPIO.
+    GPIO_setMasterCore(13, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_13_GPIO13);
-    GPIO_writePin(HAL_DRV_EN_GATE_GPIO, 0);
-    GPIO_setDirectionMode(HAL_DRV_EN_GATE_GPIO, GPIO_DIR_MODE_OUT);
-    GPIO_setPadConfig(HAL_DRV_EN_GATE_GPIO, GPIO_PIN_TYPE_STD);
+    GPIO_setDirectionMode(13, GPIO_DIR_MODE_IN);
+    GPIO_setPadConfig(13, GPIO_PIN_TYPE_STD);
 
     // EPWM8A->PWM-DAC1
     GPIO_setMasterCore(14, GPIO_CORE_CPU1);
@@ -1004,15 +1015,11 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(27, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(27, GPIO_PIN_TYPE_STD);
 
-    // GPIO28: leftover SDK template DRV-EN (DRV8320 J5/J6). NOT this board's enable
-    // (esc6288_revA EN = GPIO13, see board.h). The original template drove it HIGH at
-    // init, which would assert a stray enable-like net on bring-up. Drive LOW (safe-off)
-    // until the full GPIO map is migrated into board.h per PORT_TODO #5.
-    // TODO: confirm GPIO28's actual net on the esc6288_revA schematic; drop this block if unused.
+    // GPIO28: not connected on esc6288_revA (confirmed against schematic+netlist).
+    // High-impedance input.
     GPIO_setMasterCore(28, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_28_GPIO28);
-    GPIO_writePin(28, 0);
-    GPIO_setDirectionMode(28, GPIO_DIR_MODE_OUT);
+    GPIO_setDirectionMode(28, GPIO_DIR_MODE_IN);
     GPIO_setPadConfig(28, GPIO_PIN_TYPE_STD);
 
     // GPIO29->nFAULT for J5/J6 connection
@@ -1038,12 +1045,12 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(31, GPIO_DIR_MODE_IN);
     GPIO_setPadConfig(31, GPIO_PIN_TYPE_PULLUP);
 
-    // GPIO32->LED for J5/J6 connection
+    // GPIO32: boot-mode strap on esc6288_revA (externally pulled high via R8). Leave it
+    // an input; driving it would fight the strap resistor and could alter boot mode.
     GPIO_setMasterCore(32, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_32_GPIO32);
-    GPIO_writePin(32, 0);
-    GPIO_setDirectionMode(32, GPIO_DIR_MODE_OUT);
-    GPIO_setPadConfig(32, GPIO_PIN_TYPE_PULLUP);
+    GPIO_setDirectionMode(32, GPIO_DIR_MODE_IN);
+    GPIO_setPadConfig(32, GPIO_PIN_TYPE_STD);
 
     // GPIO33->Reserve (N/A)
     GPIO_setMasterCore(33, GPIO_CORE_CPU1);
@@ -1173,17 +1180,17 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(55, GPIO_DIR_MODE_IN);
     GPIO_setPadConfig(55, GPIO_PIN_TYPE_STD);
 
-    // GPIO56->SPIA-CLK for J1/J2 connection
+    // GPIO56: not connected on esc6288_revA (encoder SPI CLK is GPIO9). Input.
     GPIO_setMasterCore(56, GPIO_CORE_CPU1);
-    GPIO_setPinConfig(GPIO_56_SPICLKA);
-    GPIO_setDirectionMode(56, GPIO_DIR_MODE_OUT);
+    GPIO_setPinConfig(GPIO_56_GPIO56);
+    GPIO_setDirectionMode(56, GPIO_DIR_MODE_IN);
     GPIO_setPadConfig(56, GPIO_PIN_TYPE_STD);
 
-    // GPIO57->SPIA-CS for J1/J2 connection
+    // GPIO57: not connected on esc6288_revA (encoder SPI STE is GPIO11). Input.
     GPIO_setMasterCore(57, GPIO_CORE_CPU1);
-    GPIO_setPinConfig(GPIO_57_SPIA_STE);
-    GPIO_setDirectionMode(57, GPIO_DIR_MODE_OUT);
-    GPIO_setPadConfig(57, GPIO_PIN_TYPE_PULLUP);
+    GPIO_setPinConfig(GPIO_57_GPIO57);
+    GPIO_setDirectionMode(57, GPIO_DIR_MODE_IN);
+    GPIO_setPadConfig(57, GPIO_PIN_TYPE_STD);
 
     // GPIO58->Reserve (N/A)
     GPIO_setMasterCore(58, GPIO_CORE_CPU1);

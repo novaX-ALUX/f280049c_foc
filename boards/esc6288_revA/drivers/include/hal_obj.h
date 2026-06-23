@@ -87,7 +87,11 @@ typedef struct _HAL_Obj_
 
   uint32_t      pgaHandle[3];       //!< the PGA handle
 
-  uint32_t      cmpssHandle[3];     //!< the CMPSS handle
+  uint32_t      cmpssHandle[3];     //!< current-OC CMPSS; [0]=CMPSS3 (phase C). [1]/[2]
+                                    //!< alias [0] (phases A/B have no CMPSS path on this board)
+
+  uint32_t      cmpssBusOvHandle;   //!< DC-bus over-voltage (CMPSS5); kept OUT of the
+                                    //!< runtime current-threshold DAC loop so it is never overwritten
 
   uint32_t      dacHandle[2];       //!< the DAC handle
 
