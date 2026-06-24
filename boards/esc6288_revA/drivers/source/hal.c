@@ -1022,7 +1022,7 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(28, GPIO_DIR_MODE_IN);
     GPIO_setPadConfig(28, GPIO_PIN_TYPE_STD);
 
-    // GPIO29->nFAULT for J5/J6 connection
+    // GPIO29: reserved/unconnected input (JSM6288T has no nFAULT pin; template label was nFAULT J5/J6).
     GPIO_setMasterCore(29, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_29_GPIO29);
     GPIO_setDirectionMode(29, GPIO_DIR_MODE_IN);
@@ -1084,7 +1084,7 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(39, GPIO_DIR_MODE_IN);
     GPIO_setPadConfig(39, GPIO_PIN_TYPE_PULLUP);
 
-    // GPIO40->nFAULT for J1/J2 connection
+    // GPIO40: reserved/unconnected input (JSM6288T has no nFAULT pin; template label was nFAULT J1/J2).
     GPIO_setMasterCore(40, GPIO_CORE_CPU1);
     GPIO_setPinConfig(GPIO_40_GPIO40);
     GPIO_setDirectionMode(40, GPIO_DIR_MODE_IN);

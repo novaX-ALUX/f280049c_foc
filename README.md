@@ -6,7 +6,7 @@ Replaces the legacy `../esc_drv8300_foc` (F28027F / MotorWare, end-of-life) and 
 ## Target Platform
 - MCU: **TMS320F280049C** (F28004x, 100 MHz, FPU + **TMU**, 256 KB Flash / 100 KB RAM)
 - Software stack: **C2000Ware MotorControl SDK 6.0** + driverlib (**not MotorWare**)
-- Hardware boards: production board `esc6288_revA` uses FD6288/simple gate driver; validation boards `launchxl_drv8305evm` (DRV8305) and `launchxl_3phganinv` (BOOSTXL-3PhGaNInv, LMG5200 GaN) (see Boards table)
+- Hardware boards: production board `esc6288_revA` uses a JSM6288T (6-input, no enable/SPI) gate driver; validation boards `launchxl_drv8305evm` (DRV8305) and `launchxl_3phganinv` (BOOSTXL-3PhGaNInv, LMG5200 GaN) (see Boards table)
 - Control: InstaSPIN **FAST sensorless** (F280049C has FAST ROM) + future **MT6701 sensored** integration
 
 ## Selected Reference Base
@@ -33,7 +33,7 @@ Each lab has both EABI and COFF variants — **this project uses EABI**.
 ## Boards (three boards, orthogonal to the control core)
 | Board (`BOARD=`) | Role | Gate driver | Current sensing | Status |
 |------|------|---------|---------|------|
-| `esc6288_revA` | Production ESC (custom, in fabrication) | FD6288 / simple (EN GPIO, no SPI) | External shunt + op-amp | is01 builds; board-level HAL pending schematic migration into `board.h` |
+| `esc6288_revA` | Production ESC (custom, in fabrication) | JSM6288T / simple 6-input (no EN, no nFAULT, no SPI) | External shunt + op-amp | is01 builds; board-level HAL pending schematic migration into `board.h` |
 | `launchxl_drv8305evm` | **Validation platform** (TI LaunchPad + BoosterPack) | DRV8305 (SPI-programmable, integrated CSA) | DRV8305 integrated CSA → direct ADC | **Phases 1–3 complete**: is01 pins correct and building, PGA/ADC front-end correct, DRV8305 SPI driver in place; Phase 4 power-on pending hardware |
 | `launchxl_3phganinv` | **GaN validation platform** (TI LaunchPad + BOOSTXL-3PhGaNInv) | LMG5200 GaN half-bridges via SN74AVC8T245 buffer (nEn_uC active-low; no SPI) | INA240 (gain 20) on 5 mΩ in-line shunts → direct ADC | **Build complete** (LAB=all 12/12, SRC_CHECK clean); power-on + bench-verify pending (see `PORT_TODO.md`: dead-time, current sign, OT trip) |
 
@@ -114,9 +114,12 @@ MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 - `launchxl_drv8305evm` automatically appends `drv8305.c` and `--define=DRV8305_SPI`.
 
 ## Hardware Safety State
-- All boards: `HAL_setupGPIOs()` holds the gate-driver enable in its *disabled* state by default; power-on testing requires explicit `HAL_enableDRV()` in the lab entry with the correct enable sequence. Active-high boards (`esc6288_revA`, `launchxl_drv8305evm`) hold EN low; `launchxl_3phganinv` is active-low (nEn_uC buffer OE), so it holds the pin **high** (disabled) and `HAL_enableDRV()` drives it low.
+- All boards: `HAL_setupGPIOs()` brings up the gate stage in its *disabled* state by default; power-on testing requires explicit `HAL_enableDRV()` in the lab entry. The enable mechanism differs per board:
+  - `esc6288_revA` (JSM6288T): **no gate-enable pin and no nFAULT pin** — safe-off is the ePWM trip-zone (OST), held until `HAL_enablePWM()`; `HAL_enableDRV()` is a no-op.
+  - `launchxl_drv8305evm` (DRV8305): active-high EN_GATE on GPIO39, held **low** (disabled) until `HAL_enableDRV()`.
+  - `launchxl_3phganinv` (LMG5200): active-low nEn_uC (buffer OE) on GPIO39, held **high** (disabled) until `HAL_enableDRV()` drives it low.
 - **launchxl_3phganinv**: LMG5200 GaN half-bridges have **no internal dead-time** — the MCU dead-band (`HAL_PWM_DBRED_CNT`/`DBFED_CNT` in `hal.h`, ~200 ns) is the only shoot-through protection; verify on a scope before raising bus voltage.
-- **esc6288_revA**: `DRV8320_SPI` is not defined, so the original DRV8320 SPI block is never executed; EN (GPIO13) uses STD mode with no internal pull-up (relies on external pull-down for fail-safe).
+- **esc6288_revA**: JSM6288T is a simple 6-input driver with no enable and no nFAULT — GPIO13 is not connected (input), `HAL_enableDRV()` is a no-op, and the gate stage is held off by the ePWM trip-zone (OST) until `HAL_enablePWM()`.
 - **launchxl_drv8305evm**: EN_GATE=GPIO39 (low/off), nFAULT=GPIO13 (input); `HAL_enableDRV()` wakes and configures DRV8305.
   ⚠️ **Overcurrent protection (CMPSS) is not yet wired** (mapping verified; pending SysConfig generation) — must be connected before high-current operation (is05+); low-voltage low-current calibration/self-test can proceed first.
 
@@ -129,7 +132,7 @@ f280049c_foc/
 ├── C2000Ware_MotorControl_SDK_6_00_00_00/  # vendor SDK, referenced only, not modified (gitignore)
 ├── docs/                                    # local reference materials: TRM/datasheet/errata/SDK lab guide
 ├── boards/                                  # axis 1: hardware (MOSFETs / gate driver / shunt / layout)
-│   ├── esc6288_revA/             # production ESC (FD6288, custom, in fabrication): board.h/hal.c/gate_driver.c/cmd/PORT_TODO.md
+│   ├── esc6288_revA/             # production ESC (JSM6288T, custom, in fabrication): board.h/hal.c/gate_driver.c/cmd/PORT_TODO.md
 │   ├── launchxl_drv8305evm/      # validation platform (DRV8305EVM): same + drv8305.c/.h (SPI driver)
 │   └── launchxl_3phganinv/       # GaN validation platform (BOOSTXL-3PhGaNInv, LMG5200): same, no SPI; active-low enable
 ├── config/build_config.h                    # board/motor ID selection (BUILD_BOARD_ID / BUILD_MOTOR_ID)

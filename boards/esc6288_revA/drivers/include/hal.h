@@ -98,16 +98,16 @@ extern "C" {
 //!
 #define HAL_STOP_CMD_GPIO               25
 
-//! \brief Defines the gpio for the nFAULT of Power Module device
+//! \brief nFAULT gpio. JSM6288T has no fault pin on this board -> BOARD_GPIO_NONE (unused).
 //!
 #define HAL_PM_nFAULT_GPIO              BOARD_GATE_FAULT_GPIO
 
-//! \brief Defines the gpio for the OCTW of Power Module device
+//! \brief OCTW gpio. JSM6288T has no warning pin on this board -> BOARD_GPIO_NONE (unused).
 //!
 #define HAL_PM_nOCTW_GPIO               BOARD_GATE_WARNING_GPIO
 
-//! \brief Defines the gpio for the enable gate of DRV device
-//!
+//! \brief Gate-enable gpio. JSM6288T has no enable pin -> BOARD_GPIO_NONE; HAL_enableDRV() is a no-op
+//!        and safe-off is the ePWM trip-zone (OST), held until HAL_enablePWM().
 #define HAL_DRV_EN_GATE_GPIO            BOARD_GATE_ENABLE_GPIO
 
 #define HAL_TZ_SIGNAL1            EPWM_TZ_SIGNAL_OSHT1
@@ -130,16 +130,16 @@ extern "C" {
 //!
 #define HAL_STOP_CMD_GPIO             32
 
-//! \brief Defines the gpio for the nFAULT of Power Module device
+//! \brief nFAULT gpio. JSM6288T has no fault pin on this board -> BOARD_GPIO_NONE (unused).
 //!
 #define HAL_PM_nFAULT_GPIO            BOARD_GATE_FAULT_GPIO
 
-//! \brief Defines the gpio for the OCTW of Power Module device
+//! \brief OCTW gpio. JSM6288T has no warning pin on this board -> BOARD_GPIO_NONE (unused).
 //!
 #define HAL_PM_nOCTW_GPIO             BOARD_GATE_WARNING_GPIO
 
-//! \brief Defines the gpio for the enable gate of DRV device
-//!
+//! \brief Gate-enable gpio. JSM6288T has no enable pin -> BOARD_GPIO_NONE; HAL_enableDRV() is a no-op
+//!        and safe-off is the ePWM trip-zone (OST), held until HAL_enablePWM().
 #define HAL_DRV_EN_GATE_GPIO          BOARD_GATE_ENABLE_GPIO
 
 #define HAL_TZ_SIGNAL1            EPWM_TZ_SIGNAL_OSHT1

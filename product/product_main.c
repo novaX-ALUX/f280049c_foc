@@ -331,7 +331,9 @@ static void product_tick_1ms(void)
         }
     }
 
-    // 2) assemble feedback (gate fault = nFAULT active-low; i_motor = peak |phase current|;
+    // 2) assemble feedback (gate_fault: only boards with a gate-fault input set it -- read as
+    //    active-low when BOARD_HAS_GATE_FAULT_INPUT; esc6288_revA (JSM6288T) and launchxl_3phganinv
+    //    have no such pin, so it stays false. i_motor = peak |phase current|;
     //    temperature is a placeholder until a sensor is wired on the board)
     imot = fmaxf(fmaxf(fabsf(adcData.I_A.value[0]), fabsf(adcData.I_A.value[1])),
                  fabsf(adcData.I_A.value[2]));
