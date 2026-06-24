@@ -49,6 +49,42 @@ No SPI, no gate-driver fault pin, no WAKE. `BOARD_HAS_GATE_FAULT_INPUT = 0`.
       R48) and that asserting OT (active-low) trips PWM via the ePWM trip zone.
 - [ ] **Voltage full-scale**: confirm 81.5 V against the actual divider; read VDC at a known bus voltage.
 
+## Bench bring-up procedure (AM-4116 on this board)
+
+**Do NOT run is01→is13 in sequence.** This board has never run on hardware, the LMG5200 has no
+internal dead-time, and the AM-4116 (~40 mΩ) is unsafe on two stock labs (below). First-round goal is
+**is01 / is02 + 0 V dead-time scope + small-Iq is06 sanity**, not the full lab ladder.
+
+Two hardware facts confirmed against the code (drive the order):
+- **Stock SDK labs do NOT enable GPIO39 on this board.** `HAL_enableDRV()` is only called under
+  `#ifdef DRV8320_SPI` (e.g. `is01_intro_hal.c:423`, `is06_torque_control.c:416`); this board defines
+  no SPI macro (`build.sh:127`). So "it compiles" ≠ "PWM reaches the LMG5200". The gate buffer must be
+  enabled explicitly — the `*_3phganinv.js` helpers below drive **GPIO39 LOW (active-low nEn_uC)**.
+- **AM-4116 unsafe on is03 V/f and is05 ID here.** is03 scalar V/f puts `VOLT_MIN_V` across ~40 mΩ ≈
+  instant over-current (`am_4116_kva.h:46`); is05 FAST-ID startup transient exceeds this board's
+  ±16.5 A sense ceiling (tighter than the DRV8305 EVM). See `product/BENCH.md`, `motors/README.md`.
+
+GaN gate polarity (opposite of DRV8305): enable = `GPBCLEAR 0x7F0C` bit7 (GPIO39 LOW, readback 0);
+disable = `GPBSET 0x7F0A` bit7 (GPIO39 HIGH, readback 1).
+
+Order (USB powers the LaunchPad; keep the 24 V bus OFF until step 4):
+1. `tools/flash/check_3phganinv_is01.js` — safety check only; confirms parked at dead-wait, GPIO39
+   idles HIGH (buffer disabled), GPIO58/OT deasserted, zero-current counts ~2048. **Never enables.**
+2. `tools/flash/cal_is02_3phganinv.js` — one-shot zero-current offset cal with the buffer **still
+   disabled** (external INA240 samples without it); reports offsets (~+16.5 A) and noise.
+3. `tools/flash/scope_deadtime_3phganinv.js` — **bus must be 0 V** (hard-aborts ≥2 V, and kills PWM
+   if the bus rises during the hold). Loads `is02_offset_gain_cal.out` and uses its re-armed
+   offset-cal 50% zero-vector (`Vabc_pu` hard-set 0 → 50% duty with NO `1/dcBus` term, unlike is03's
+   V/f which goes Inf/NaN at 0 V), enables the buffer, and holds so you scope the high/low-side
+   non-overlap (~200 ns / 20 counts). Raise `HAL_PWM_DBRED_CNT/DBFED_CNT` and rebuild if any overlap,
+   BEFORE any bus voltage.
+4. Apply current-limited **24 V**, then `tools/flash/run_is06_3phganinv.js [iq_A]` — default Iq 0.1 A,
+   hard max 0.5 A. Confirm current/torque direction and rotation; fix `current_sf` sign (hal.h, both
+   read fns) + offset sign (user.h), or `PWM_PHASE_ORDER`, if reversed.
+5. Only after the above: small-speed is07; then is08/is10. is09/is12/is13 are later features.
+
+Skipped on this board for the 4116: energized is03 V/f, is05 re-ID. Full-power 4116 → esc6288.
+
 ## Deferred (follow-up)
 - CAN bridge (`can_bridge.c`, CANA GPIO32/33 — free on Site 1) → enables `CAN_CHECK`/`PRODUCT`.
 - `product/product_main.c` board cases (limits, digital-OT path instead of analog NTC, init,
