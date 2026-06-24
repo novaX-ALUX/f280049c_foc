@@ -3,6 +3,7 @@
 
 #define BUILD_BOARD_ID_ESC6288_REVA          (1U)
 #define BUILD_BOARD_ID_LAUNCHXL_DRV8305EVM   (2U)
+#define BUILD_BOARD_ID_LAUNCHXL_3PHGANINV    (3U)
 
 // Board selection source of truth: build.sh injects -DBUILD_BOARD_ID via BOARD=; defaults to esc6288_revA if not injected.
 #ifndef BUILD_BOARD_ID

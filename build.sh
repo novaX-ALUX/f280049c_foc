@@ -32,6 +32,7 @@ fi
 if [ "$PWM_PHASE_ORDER" = "auto" ]; then
   case "$BOARD" in
     launchxl_drv8305evm) PWM_PHASE_ORDER=4 ;;  # measured: SVGEN A/B/C -> EPWM5/EPWM3/EPWM6
+    launchxl_3phganinv)  PWM_PHASE_ORDER=4 ;;  # same Site-1 EPWM map as DRV8305EVM; verify rotation on bench
     *)                   PWM_PHASE_ORDER=0 ;;
   esac
 fi
@@ -67,6 +68,7 @@ esac
 case "$BOARD" in
   esc6288_revA)        BOARD_ID=1 ;;
   launchxl_drv8305evm) BOARD_ID=2 ;;
+  launchxl_3phganinv)  BOARD_ID=3 ;;
   *) echo "Unknown board BOARD=$BOARD (see boards/ and config/build_config.h)"; exit 1 ;;
 esac
 
@@ -358,11 +360,11 @@ case "$LAB" in
 esac
 
 # Unsupported lab: is11 is dual-motor, needs the user_m1/m2/dm + labs_dm/hal_dm scaffolding
-# (removed during the single-motor convergence). Both boards are single-motor targets.
+# (removed during the single-motor convergence). All boards in this project are single-motor targets.
 case "$LAB" in
   is11_dual_motor)
     echo "LAB=$LAB unsupported: the dual-motor lab needs the removed user_m1/m2/dm + hal_dm scaffolding."
-    echo "  Both boards in this project (esc6288_revA / launchxl_drv8305evm) are single-motor targets."
+    echo "  All boards in this project (esc6288_revA / launchxl_drv8305evm / launchxl_3phganinv) are single-motor targets."
     exit 2 ;;
 esac
 ASM_SRCS=( "$DEV/common/source/f28004x_codestartbranch.asm" )
