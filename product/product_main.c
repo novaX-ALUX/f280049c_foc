@@ -253,6 +253,8 @@ static void product_init(void)
 
     g_fbcfg.pole_pairs     = (float)USER_MOTOR_NUM_POLE_PAIRS;
     g_fbcfg.iq_cmd_limit_A = 6.0f;   // redundant hard cap, just above iq_max_A
+    g_fbcfg.speed_max_hz   = 100.0f; // speed-mode |speedRef| clamp (elec Hz); bench-tune. The
+                                     // speed path is gated OFF by default (SPEED_PATH_ALLOWED).
 
     product_build_esc_cfg(&cfg);
     esc_control_init(&g_esc, &cfg, product_park_ref_load, NULL);
@@ -303,11 +305,35 @@ static void product_init(void)
 #endif
 }
 
-//! \brief Land the FOC setpoint on the SDK control variables (torque path only on launchxl).
+// ---- Speed-mode gate (controlled skeleton) ----
+// The product speed path is OFF by default and is a fail-safe disable unless BOTH (a) this is the
+// esc6288 board AND (b) the runtime flag g_speed_mode_enable is set (flip via debugger, or a
+// future DroneCAN param). The build default of that flag is ESC6288_SPEED_MODE_DEFAULT (override
+// with -DESC6288_SPEED_MODE_DEFAULT=true). Even when allowed, the speed path only LANDS
+// motorVars.speedRef_Hz; the ISR speed-PI is deferred, so enabling the gate alone does NOT close
+// the loop (Iq stays 0) -- the skeleton is safe to compile and ship.
+#ifndef ESC6288_SPEED_MODE_DEFAULT
+#define ESC6288_SPEED_MODE_DEFAULT  (false)
+#endif
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+static volatile bool g_speed_mode_enable = ESC6288_SPEED_MODE_DEFAULT;
+#define SPEED_PATH_ALLOWED()   (g_speed_mode_enable)
+#else
+#define SPEED_PATH_ALLOWED()   (false)
+#endif
+
+//! \brief Land the FOC setpoint on the SDK control variables. Torque is the only closed path
+//!        today; the speed path is a gated skeleton (see SPEED_PATH_ALLOWED above).
 //!        Caller is the 1 ms background tick; the ISR only READS these single-word fields.
-static void apply_setpoint(const foc_setpoint_t *sp)
+static void apply_setpoint(const foc_setpoint_t *sp_in)
 {
-    if((sp->enable == false) || (sp->brake == true))
+    foc_setpoint_t sp = *sp_in;
+
+    // Gate the speed path: when not allowed, a speed-mode request becomes a coast-disable
+    // (pure helper), so the disable branch below handles it -- exactly the previous behavior.
+    foc_bridge_gate_speed(&sp, SPEED_PATH_ALLOWED());
+
+    if((sp.enable == false) || (sp.brake == true))
     {
         // Coast: drop the run flag and zero Iq. launchxl has no active short-brake yet
         // (brake degrades to disable); a real brake is deferred to esc6288.
@@ -316,18 +342,24 @@ static void apply_setpoint(const foc_setpoint_t *sp)
         return;
     }
 
-    if(sp->speed_mode == true)
+    if(sp.speed_mode == true)
     {
-        // Should not occur on launchxl (auto_park disabled). Fail safe to disable.
-        // TODO(esc6288): drive motorVars.speedRef_Hz + the is07 speed-PI ISR branch here.
-        IdqSet_A.value[1] = 0.0f;
-        motorVars.flagRunIdentAndOnLine = 0;
+        // Speed skeleton (reached only when the gate allows it): land the clamped speed
+        // reference on the SDK control variable and arm once offset cal is done. The ISR
+        // speed-PI consumption is deferred, so Iq stays 0 and the loop remains open here.
+        IdqSet_A.value[0] = 0.0f;
+        IdqSet_A.value[1] = 0.0f;              // speed PI (ISR, deferred) will own Iq
+        motorVars.speedRef_Hz = sp.speed_ref_hz;
+        if(motorVars.flagEnableOffsetCalc == false)
+        {
+            motorVars.flagRunIdentAndOnLine = 1;
+        }
         return;
     }
 
     // Torque: the ISR copies IdqSet_A -> Idq_ref_A directly (no speed loop).
     IdqSet_A.value[0] = 0.0f;
-    IdqSet_A.value[1] = sp->iq_ref_A;
+    IdqSet_A.value[1] = sp.iq_ref_A;
     if(motorVars.flagEnableOffsetCalc == false)
     {
         motorVars.flagRunIdentAndOnLine = 1;   // arm only once ADC offset cal is done
