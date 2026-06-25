@@ -1,7 +1,7 @@
 # esc6288_revA — bring-up checklist
 
 Status: **ported from the final schematic + netlist; all build gates green** (SRC_CHECK,
-CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 8/8). The board is at fab;
+CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 9/9). The board is at fab;
 the items below are what to verify/tune once the prototype returns. Anything marked
 **[BENCH]** needs the hardware (scope/meter) to confirm.
 
@@ -94,6 +94,17 @@ The phase-A and phase-B current-sense op-amp outputs land on **ADCIN A0/B15/C15 
 have **no CMPSS comparator** on F28004x — so only phase C and the DC bus get hardware
 cycle-by-cycle trips. This rev relies on software OC for A/B by design (user-approved). For a
 rev B, route the IA/IB sense onto CMPSS-capable pads (e.g. B2/A4) to restore 3-phase hardware OC.
+
+## Parameter persistence (storage format done; Flash erase/program deferred)
+The non-volatile record (DroneCAN node-id, learned park-ref valid flag + target angle) has a
+pure, host-tested storage format: `src/app/nvparam.{h,c}` (magic + version + CRC16 + range
+validation), tested by `tools/test/test_nvparam.c` (roundtrip, bad magic/version/CRC,
+node-id + NaN/Inf bounds, mock-flash power-cycle). `product_main` already folds DNA-allocated
+ids and learned park refs into an in-RAM `nvparam_t` mirror at the existing store-request sites.
+**Deferred [target]:** the actual driverlib Flash read at boot (`nvparam_decode` of the
+read-back words) and write (`nvparam_encode` → erase/program) — search `TODO(target)` in
+`product_main.c`. Until then the mirror stays at defaults, so node_id falls back to
+`BUILD_NODE_ID` and the park ref boots unlearned (behaviour unchanged).
 
 ## Build / verify
 ```bash

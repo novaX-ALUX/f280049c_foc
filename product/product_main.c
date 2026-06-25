@@ -24,6 +24,7 @@
 
 #include "esc_control.h"
 #include "foc_bridge.h"
+#include "nvparam.h"
 #include "dronecan.h"
 #include "dronecan_frame.h"
 #include "can_bridge.h"
@@ -132,6 +133,12 @@ static esc_control_state_t g_esc;
 static dronecan_t          g_dn;
 static foc_bridge_cfg_t    g_fbcfg;
 
+//! In-RAM mirror of the persisted parameter record (node-id + learned park ref). The
+//! storage FORMAT is validated host-side (src/app/nvparam); the actual Flash erase/program
+//! is deferred (target work). Until then this stays at defaults, so behaviour is unchanged:
+//! node_id falls back to BUILD_NODE_ID and the park ref starts unlearned.
+static nvparam_t           g_nvparam;
+
 static esc_command_t       g_cmd;        //!< last command from comms (valid if g_have_cmd)
 static bool                g_have_cmd;
 static uint32_t            g_now_ms;      //!< 1 ms tick counter (dronecan scheduling)
@@ -152,13 +159,15 @@ static dronecan_frame_t    g_txbuf[PRODUCT_TXBUF_FRAMES];
 // the functions
 //
 
-//! \brief Park-reference NV loader stub. launchxl has no Flash-persisted park ref yet
-//!        (and with enc_valid=false the learn path never runs), so report "unlearned".
+//! \brief Park-reference NV loader: returns the park ref held in the in-RAM nvparam mirror.
+//!        Until the Flash read is implemented g_nvparam stays at defaults (invalid), so this
+//!        still reports "unlearned" on every boot -- and with enc_valid=false on launchxl the
+//!        learn path never runs anyway. esc6288 with a real encoder learns + raises a store.
 static float product_park_ref_load(void *ctx, bool *out_valid)
 {
     (void)ctx;
-    *out_valid = false;
-    return 0.0f;
+    *out_valid = g_nvparam.park_ref_valid;
+    return g_nvparam.park_ref_target_rev;
 }
 
 //! \brief Derive the 16-byte DroneCAN unique-id from the device OTP UID (PSRAND0..3, the
@@ -256,6 +265,11 @@ static void product_init(void)
     g_fbcfg.speed_max_hz   = 100.0f; // speed-mode |speedRef| clamp (elec Hz); bench-tune. The
                                      // speed path is gated OFF by default (SPEED_PATH_ALLOWED).
 
+    // Seed the persisted-parameter mirror. A real build would decode it from Flash here
+    // (nvparam_decode of the read-back words); that read is deferred, so we start at
+    // defaults -> park ref unlearned, node_id 0 (DNA) -> dncfg.node_id keeps BUILD_NODE_ID.
+    nvparam_set_defaults(&g_nvparam);
+
     product_build_esc_cfg(&cfg);
     esc_control_init(&g_esc, &cfg, product_park_ref_load, NULL);
 
@@ -263,7 +277,10 @@ static void product_init(void)
     product_read_unique_id(dncfg.unique_id);
     dncfg.esc_index             = (uint16_t)BUILD_ESC_INDEX;
     dncfg.arm_zero_frames       = 0u;   // -> default 10
-    dncfg.node_id               = (uint16_t)BUILD_NODE_ID;  // 0 = DNA; 1..127 = static (bench)
+    // A persisted static id (nvparam) wins over the build default; 0 -> fall back to
+    // BUILD_NODE_ID (itself 0 = DNA on a normal build). Defaults today -> BUILD_NODE_ID.
+    dncfg.node_id               = (g_nvparam.node_id != 0u) ? g_nvparam.node_id
+                                                            : (uint16_t)BUILD_NODE_ID;
     dncfg.node_status_period_ms = 0u;   // -> default 1000
     dncfg.esc_status_period_ms  = 0u;   // -> default 100
     dncfg.dna_request_period_ms = 0u;   // -> default 1000
@@ -442,10 +459,14 @@ static void product_tick_1ms(void)
     foc_bridge_map_output(&g_fbcfg, &out, &sp);
     apply_setpoint(&sp);
 
-    // 5) park-ref store request (launchxl never fires it; placeholder, Flash deferred)
+    // 5) park-ref store request: fold the freshly learned reference into the nvparam mirror,
+    //    then clear the request. The Flash write (nvparam_encode -> erase/program) is deferred;
+    //    on launchxl the request never fires (enc_valid=false), so this is a no-op there.
     if(g_esc.ref.needs_store)
     {
+        (void)nvparam_update_park_ref(&g_nvparam, true, g_esc.ref.new_target);
         park_ref_clear_store_request(&g_esc.ref);
+        // TODO(target): nvparam_encode(&g_nvparam, words) -> Flash erase/program.
     }
 
     // 6) periodic TX: DNA while unallocated; GetNodeInfo response (if requested) + NodeStatus
@@ -457,7 +478,10 @@ static void product_tick_1ms(void)
     }
     if(dronecan_node_id_dirty(&g_dn))
     {
-        dronecan_clear_node_id_dirty(&g_dn);   // TODO: persist node-id to Flash (deferred)
+        // DNA allocated an id: record it in the nvparam mirror, then clear the dirty flag.
+        (void)nvparam_update_node_id(&g_nvparam, dronecan_node_id(&g_dn));
+        dronecan_clear_node_id_dirty(&g_dn);
+        // TODO(target): nvparam_encode(&g_nvparam, words) -> Flash erase/program.
     }
 }
 
