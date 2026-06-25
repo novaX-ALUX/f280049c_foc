@@ -1,0 +1,19 @@
+PARTS LIST
+
+100nF             C0402           C1
+ESD5Z6.0          SOD-523         D1
+MT6701CT-STD      SOP-8           U1
+EOS
+NET LIST
+
+NODENAME VDD              $
+    C1         1  D1         1  U1         1  U1         2
+NODENAME SCK              $
+    U1         7
+NODENAME nCS              $
+    U1         8
+NODENAME GND              $
+    C1         2  D1         2  U1         4
+NODENAME DO               $
+    U1         6
+EOS
