@@ -139,7 +139,9 @@ void dronecan_pack_uint(dronecan_payload_t *p, uint32_t value, uint16_t nbits)
 
 void dronecan_pack_int(dronecan_payload_t *p, int32_t value, uint16_t nbits)
 {
-    uint32_t mask = (nbits >= 32u) ? 0xFFFFFFFFu : ((1u << nbits) - 1u);
+    /* (uint32_t)1u is required: on C28x `int`/`1u` is 16-bit, so `1u << nbits` for nbits>=16
+     * (e.g. the int18 RPM field) is undefined and silently corrupts the mask. */
+    uint32_t mask = (nbits >= 32u) ? 0xFFFFFFFFu : (((uint32_t)1u << nbits) - 1u);
     dronecan_pack_uint(p, ((uint32_t)value) & mask, nbits);
 }
 
@@ -175,8 +177,11 @@ uint32_t dronecan_unpack_uint(const dronecan_payload_t *p, uint16_t *bitpos, uin
 int32_t dronecan_unpack_int(const dronecan_payload_t *p, uint16_t *bitpos, uint16_t nbits)
 {
     uint32_t v = dronecan_unpack_uint(p, bitpos, nbits);
-    if (nbits < 32u && (v & (1u << (nbits - 1u))) != 0u) {
-        v |= ~((1u << nbits) - 1u); /* sign extend */
+    /* (uint32_t)1u is required: on C28x a bare `1u` is 16-bit, so `~((1u<<nbits)-1u)` only sets
+     * bits 0..15 and the OR into the 32-bit `v` fails to sign-extend -- a negative int14
+     * RawCommand (e.g. -100) would decode as a large positive value (full throttle). */
+    if (nbits < 32u && (v & ((uint32_t)1u << (nbits - 1u))) != 0u) {
+        v |= ~(((uint32_t)1u << nbits) - 1u); /* sign extend */
     }
     return (int32_t)v;
 }
@@ -213,8 +218,9 @@ uint16_t dronecan_float32_to_float16(float v)
             {
                 uint16_t shift = (uint16_t)(14 - e);
                 uint32_t half = man >> shift;
-                uint32_t rem  = man & ((1u << shift) - 1u);
-                uint32_t halfway = 1u << (shift - 1u);
+                /* (uint32_t)1u: shift can reach 24, which is UB on a 16-bit C28x `int`. */
+                uint32_t rem  = man & (((uint32_t)1u << shift) - 1u);
+                uint32_t halfway = (uint32_t)1u << (shift - 1u);
                 if (rem > halfway || (rem == halfway && (half & 1u))) {
                     half++;                      /* round to nearest even */
                 }
