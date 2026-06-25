@@ -178,6 +178,18 @@ int main(void)
         CHECK(sp.enable);
         CHECK_NEAR(sp.iq_ref_A, 5.0f, 1e-6f);
     }
+    /* speed gate: a denied speed-mode setpoint is normalized even if already disabled. */
+    {
+        foc_setpoint_t sp = {0};
+        sp.speed_mode = true;
+        sp.enable = false;                  /* already disabled */
+        sp.speed_ref_hz = 25.0f;            /* but carries stale fields */
+        sp.iq_ref_A = 2.0f;
+        foc_bridge_gate_speed(&sp, false);
+        CHECK(!sp.enable);
+        CHECK_NEAR(sp.speed_ref_hz, 0.0f, 1e-6f);  /* normalized, not left stale */
+        CHECK_NEAR(sp.iq_ref_A, 0.0f, 1e-6f);
+    }
 
     CHECK_DONE();
 }

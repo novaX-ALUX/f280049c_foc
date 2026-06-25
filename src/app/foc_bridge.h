@@ -52,10 +52,10 @@ void foc_bridge_map_output(const foc_bridge_cfg_t *cfg,
                            const esc_output_t *out, foc_setpoint_t *sp);
 
 /*
- * Speed-path runtime gate. If sp is in speed mode but the board/runtime does not allow the speed
- * path (speed_allowed=false), force sp to a coast-disable (enable=false, speedRef/iq zeroed) so
- * the glue's disable branch takes over -- the fail-safe. Torque-mode and already-disabled
- * setpoints are left untouched. Pure -> host-tested; the board decides speed_allowed.
+ * Speed-path runtime gate. When speed_allowed=false, ANY speed-mode setpoint is normalized to a
+ * coast-disable (enable=false, speedRef/iq zeroed) -- regardless of its prior enable state -- so
+ * the glue's disable branch takes over (the fail-safe). Torque-mode setpoints are never touched.
+ * Pure -> host-tested; the board decides speed_allowed.
  */
 void foc_bridge_gate_speed(foc_setpoint_t *sp, bool speed_allowed);
 
