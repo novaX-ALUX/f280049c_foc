@@ -1,5 +1,6 @@
 #include "check.h"
 #include "mt6701.h"
+#include "mt6701_golden.inc"
 
 static mt6701_cfg_t base_cfg(void)
 {
@@ -164,6 +165,63 @@ int main(void)
         mt6701_update(&s, 8192, true, 0.001f); /* 0.5 rev * 7 = 3.5 -> frac 0.5 -> pi -> -pi range */
         float er = mt6701_elec_rad(&s);
         CHECK(er >= -3.1416f && er < 3.1416f);
+    }
+
+    /* ---- SSI frame decode + CRC6 (datasheet 6.8.2) ---- */
+
+    /* CRC6 anchored to a few hand-computed values (poly X^6+X+1, init 0, MSB-first). */
+    {
+        CHECK(mt6701_crc6(0u) == 0x00u);
+        CHECK(mt6701_crc6(1u) == 0x03u);   /* only Mg[0] set */
+        CHECK(mt6701_crc6(2u) == 0x06u);
+        CHECK((mt6701_crc6(0xFFFFFFFFu) & ~0x3Fu) == 0u); /* result is always 6-bit */
+    }
+
+    /* Golden vectors: decode whole frames, compare every field against the
+     * independently-generated tools/test/mt6701_golden.inc. */
+    {
+        int i;
+        for (i = 0; i < MT6701_GOLDEN_N; ++i) {
+            const mt6701_golden_t *g = &MT6701_GOLDEN[i];
+            mt6701_frame_t f;
+            bool ok = mt6701_decode_ssi(g->frame, &f);
+            CHECK(ok == (g->crc_ok != 0u));
+            CHECK(f.crc_ok == (g->crc_ok != 0u));
+            CHECK(f.angle == g->angle);
+            CHECK(f.mg == g->mg);
+            CHECK(f.crc_rx == g->crc);
+            CHECK(f.field_ok == (g->field_ok != 0u));
+            CHECK(f.track_ok == (g->track_ok != 0u));
+            CHECK(f.button == (g->button != 0u));
+        }
+    }
+
+    /* Round-trip: build a frame with the module's own CRC, decode, expect valid;
+     * flipping any single CRC bit must fail the check (CRC catches 1-bit errors). */
+    {
+        uint16_t angle = 0x2ABCu & 0x3FFFu;
+        uint16_t mg = 0x0u;
+        uint32_t data18 = ((uint32_t)angle << 4) | mg;
+        uint16_t crc = mt6701_crc6(data18);
+        uint32_t frame = ((uint32_t)angle << 10) | ((uint32_t)mg << 6) | crc;
+        mt6701_frame_t f;
+        int b;
+
+        CHECK(mt6701_decode_ssi(frame, &f));
+        CHECK(f.angle == angle);
+        CHECK(f.crc_ok && f.field_ok && f.track_ok);
+
+        for (b = 0; b < 6; ++b) {
+            CHECK(!mt6701_decode_ssi(frame ^ (1uL << b), &f)); /* corrupt CRC bit b */
+        }
+    }
+
+    /* decode_ssi tolerates a NULL out pointer (returns the CRC verdict only). */
+    {
+        uint32_t good = MT6701_GOLDEN[0].frame;       /* crc_ok vector */
+        uint32_t bad  = MT6701_GOLDEN[MT6701_GOLDEN_N - 1].frame; /* forged-CRC vector */
+        CHECK(mt6701_decode_ssi(good, 0));
+        CHECK(!mt6701_decode_ssi(bad, 0));
     }
 
     CHECK_DONE();

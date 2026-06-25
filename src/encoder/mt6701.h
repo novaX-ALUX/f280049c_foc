@@ -17,6 +17,39 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* ------------------------------------------------------------------------- *
+ * SSI frame decode (pure): split + CRC6-validate one raw 24-bit MT6701 SSI
+ * frame before its 14-bit angle is fed to mt6701_update(). No bus, no driverlib;
+ * the board read layer (mt6701_ssi.*) clocks the 24 bits and calls these.
+ *
+ * Frame (MSB first, datasheet Rev.1.5 sec 6.8.2, Figure 25):
+ *   bits [23:10] D[13:0]  14-bit angle    bits [9:6] Mg[3:0] status
+ *   bits [5:0]   CRC[5:0] 6-bit CRC over the 18-bit (D[13:0]<<4 | Mg[3:0]), D13 the MSB.
+ * Mg status: Mg[1:0] 0=normal/1=field-too-strong/2=field-too-weak; Mg[2]=push button;
+ *   Mg[3]=loss of track.
+ * CRC: polynomial X^6 + X + 1 (generator 0x03), MSB-first, initial value 0.
+ * ------------------------------------------------------------------------- */
+typedef struct {
+    uint16_t angle;     /* D[13:0], 0..16383 */
+    uint16_t mg;        /* Mg[3:0] status nibble */
+    uint16_t crc_rx;    /* CRC[5:0] carried in the frame */
+    uint16_t crc_calc;  /* CRC[5:0] recomputed over the 18-bit data */
+    bool     crc_ok;    /* crc_rx == crc_calc */
+    bool     field_ok;  /* Mg[1:0] == 0 (field strength normal) */
+    bool     track_ok;  /* Mg[3] == 0 (no loss of track) */
+    bool     button;    /* Mg[2] (push button detected; informational) */
+} mt6701_frame_t;
+
+/* CRC6 (poly X^6+X+1, MSB-first, init 0) over the low 18 bits of data18. */
+uint16_t mt6701_crc6(uint32_t data18);
+
+/*
+ * Decode one raw 24-bit SSI frame into *out (NULL allowed). Returns the CRC verdict
+ * (crc_rx == crc_calc). A "usable angle" is crc_ok && field_ok && track_ok; the caller
+ * (board read layer) is what folds those into the raw_valid passed to mt6701_update().
+ */
+bool mt6701_decode_ssi(uint32_t frame24, mt6701_frame_t *out);
+
 typedef struct {
     float    counts_per_rev;      /* 16384 for MT6701 */
     int16_t  dir;                 /* +1 or -1 (C28x has no int8_t) */

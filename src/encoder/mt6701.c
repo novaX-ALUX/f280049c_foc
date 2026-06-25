@@ -5,6 +5,44 @@
 #define MT6701_PI     3.14159265358979323846f
 #define MT6701_RAW_MAX 0x3FFFu   /* 14-bit */
 
+/* CRC6, polynomial X^6 + X + 1 (generator 0x03 below x^6), MSB-first, init 0,
+ * over the low 18 bits of data18 (D[13:0]<<4 | Mg[3:0], D13 the MSB). */
+uint16_t mt6701_crc6(uint32_t data18)
+{
+    uint16_t crc = 0u;
+    int i;
+    for (i = 17; i >= 0; --i) {
+        uint16_t fb = (uint16_t)(((crc >> 5) ^ (uint16_t)(data18 >> i)) & 1u);
+        crc = (uint16_t)((crc << 1) & 0x3Fu);
+        if (fb) {
+            crc ^= 0x03u;
+        }
+    }
+    return (uint16_t)(crc & 0x3Fu);
+}
+
+bool mt6701_decode_ssi(uint32_t frame24, mt6701_frame_t *out)
+{
+    uint16_t angle  = (uint16_t)((frame24 >> 10) & 0x3FFFu);
+    uint16_t mg     = (uint16_t)((frame24 >> 6) & 0x0Fu);
+    uint16_t crc_rx = (uint16_t)(frame24 & 0x3Fu);
+    uint32_t data18 = ((uint32_t)angle << 4) | (uint32_t)mg;
+    uint16_t crc_calc = mt6701_crc6(data18);
+    bool ok = (crc_calc == crc_rx);
+
+    if (out != 0) {
+        out->angle    = angle;
+        out->mg       = mg;
+        out->crc_rx   = crc_rx;
+        out->crc_calc = crc_calc;
+        out->crc_ok   = ok;
+        out->field_ok = ((mg & 0x3u) == 0u);   /* Mg[1:0] == normal */
+        out->track_ok = ((mg & 0x8u) == 0u);   /* Mg[3]   == no loss of track */
+        out->button   = ((mg & 0x4u) != 0u);   /* Mg[2]   == push button */
+    }
+    return ok;
+}
+
 void mt6701_init(mt6701_state_t *st, const mt6701_cfg_t *cfg)
 {
     st->cfg = *cfg;
