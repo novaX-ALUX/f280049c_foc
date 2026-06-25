@@ -32,7 +32,7 @@ RAM. It does **not** persist across power-cycle (fine for the bench).
 ## Headless flash + verify (DSS, no CCS GUI)
 
 Load and read back stage-A variables over the XDS110 straight from the shell. The target config
-`tools/flash/f280049c_xds110.ccxml` binds the F280049C under the XDS110; its driver set **must**
+`tools/flash/common/f280049c_xds110.ccxml` binds the F280049C under the XDS110; its driver set **must**
 include `cla2` (`icepick_c + c28x + cla2 + cs_child + ajsm`) — F280049C has a CLA that the
 F280025C device file lacks, and the DebugServer rejects board-data generation ("invalid processor
 ID") without the matching CLA driver.
@@ -40,14 +40,14 @@ ID") without the matching CLA driver.
 ```bash
 DSLITE=~/ti/ccs/ccs_base/DebugServer/bin/DSLite
 DSS=~/ti/ccs/ccs_base/scripting/bin/dss.sh
-CCXML="$PWD/tools/flash/f280049c_xds110.ccxml"
+CCXML="$PWD/tools/flash/common/f280049c_xds110.ccxml"
 OUT="$PWD/build/launchxl_drv8305evm/am_4116_kva/product/esc0_node25/product.out"
 
 # load to RAM + run (DSLite loads and exits, leaving the target running):
 "$DSLITE" load -c "$CCXML" "$OUT"
 
 # attach, run 3.5s, halt, print the stage-A readout, leave target running:
-"$DSS" tools/flash/verify_stagea.js "$CCXML" "$OUT"
+"$DSS" tools/flash/common/verify_stagea.js "$CCXML" "$OUT"
 ```
 
 `verify_stagea.js <ccxml> <product.out>` prints `g_now_ms` twice (confirms the 1 ms tick
@@ -62,7 +62,7 @@ increments by ~1000), `flagEnableSys` / `flagEnableOffsetCalc` / `flagRunIdentAn
 > pointers, and `&expr` addresses come through fine. So every script reads floats *exactly* by
 > taking `&expr` (an int) and reconstructing the two 16-bit C28x words as IEEE754:
 > `Float.intBitsToFloat(((hi&0xFFFF)<<16)|(lo&0xFFFF))` — see the `getf()` helper in
-> `cal_is02.js` / `verify_stagea.js` / `prepare_drv8305_gate.js`. `tools/flash/diag_precision.js`
+> `cal_is02.js` / `verify_stagea.js` / `prepare_drv8305_gate.js`. `tools/flash/common/diag_precision.js`
 > demonstrates the bug (writes known floats, reads back via both paths). This matters: a naive
 > `VdcBus_V > 5` gate "works" only because `25 > 5`, but any fine reading (offsets, currents, sub-volt
 > trims) is garbage unless read the exact way.
@@ -137,7 +137,7 @@ debugger path: run the lab to its dead-wait, assert EN_GATE by writing GPIO39, t
 
 ```bash
 BOARD=launchxl_drv8305evm MOTOR=<motor> LAB=<lab> bash build.sh
-"$DSS" tools/flash/prepare_drv8305_gate.js "$CCXML" \
+"$DSS" tools/flash/drv8305evm/prepare_drv8305_gate.js "$CCXML" \
    build/launchxl_drv8305evm/<motor>/<lab>/<lab>.out
 ```
 
@@ -172,7 +172,7 @@ For the 4116 is06 sanity path, use the dedicated guarded runner:
 
 ```bash
 BOARD=launchxl_drv8305evm MOTOR=am_4116_kva LAB=is06_torque_control bash build.sh
-"$DSS" tools/flash/run_is06.js "$CCXML" \
+"$DSS" tools/flash/drv8305evm/run_is06.js "$CCXML" \
    build/launchxl_drv8305evm/am_4116_kva/is06_torque_control/is06_torque_control.out 0.2
 ```
 
@@ -191,7 +191,7 @@ is02. is03/is04/is05 self-clear once, so they keep using `prepare_drv8305_gate.j
 
 ```bash
 BOARD=launchxl_drv8305evm MOTOR=am_4116_kva LAB=is02_offset_gain_cal bash build.sh
-"$DSS" tools/flash/cal_is02.js "$CCXML" \
+"$DSS" tools/flash/drv8305evm/cal_is02.js "$CCXML" \
    build/launchxl_drv8305evm/am_4116_kva/is02_offset_gain_cal/is02_offset_gain_cal.out
 ```
 

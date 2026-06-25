@@ -84,7 +84,7 @@ sweeping (PWM_PHASE_ORDER=2 drew ~10 A at 24 V in a wrong frame). Suggested orde
 4. Verify motor params (the 4116 Rs/Ls/flux came from a legacy esc_drv8300 ID) — re-ID if needed for
    FAST to lock; FAST is weak at the ~20 Hz we tried, so also test at higher speed.
 5. Restore `USER_MOTOR_MAX_CURRENT_A` (reverted to 8.0) / speed-loop gains and re-tune.
-Helpers added this session: `tools/flash/{check_3phganinv_is01,cal_is02_3phganinv,scope_deadtime_3phganinv,run_is06_3phganinv,run_is07_3phganinv}.js`.
+Helpers added this session: `tools/flash/3phganinv/{check_3phganinv_is01,cal_is02_3phganinv,scope_deadtime_3phganinv,run_is06_3phganinv,run_is07_3phganinv}.js`.
 
 ## Bench bring-up procedure (AM-4116 on this board)
 
@@ -105,17 +105,17 @@ GaN gate polarity (opposite of DRV8305): enable = `GPBCLEAR 0x7F0C` bit7 (GPIO39
 disable = `GPBSET 0x7F0A` bit7 (GPIO39 HIGH, readback 1).
 
 Order (USB powers the LaunchPad; keep the 24 V bus OFF until step 4):
-1. `tools/flash/check_3phganinv_is01.js` — safety check only; confirms parked at dead-wait, GPIO39
+1. `tools/flash/3phganinv/check_3phganinv_is01.js` — safety check only; confirms parked at dead-wait, GPIO39
    idles HIGH (buffer disabled), GPIO58/OT deasserted, zero-current counts ~2048. **Never enables.**
-2. `tools/flash/cal_is02_3phganinv.js` — one-shot zero-current offset cal with the buffer **still
+2. `tools/flash/3phganinv/cal_is02_3phganinv.js` — one-shot zero-current offset cal with the buffer **still
    disabled** (external INA240 samples without it); reports offsets (~+16.5 A) and noise.
-3. `tools/flash/scope_deadtime_3phganinv.js` — **bus must be 0 V** (hard-aborts ≥2 V, and kills PWM
+3. `tools/flash/3phganinv/scope_deadtime_3phganinv.js` — **bus must be 0 V** (hard-aborts ≥2 V, and kills PWM
    if the bus rises during the hold). Loads `is02_offset_gain_cal.out` and uses its re-armed
    offset-cal 50% zero-vector (`Vabc_pu` hard-set 0 → 50% duty with NO `1/dcBus` term, unlike is03's
    V/f which goes Inf/NaN at 0 V), enables the buffer, and holds so you scope the high/low-side
    non-overlap (~200 ns / 20 counts). Raise `HAL_PWM_DBRED_CNT/DBFED_CNT` and rebuild if any overlap,
    BEFORE any bus voltage.
-4. Apply current-limited **24 V**, then `tools/flash/run_is06_3phganinv.js [iq_A]` — default Iq 0.1 A,
+4. Apply current-limited **24 V**, then `tools/flash/3phganinv/run_is06_3phganinv.js [iq_A]` — default Iq 0.1 A,
    hard max 0.5 A. Confirm current/torque direction and rotation; fix `current_sf` sign (hal.h, both
    read fns) + offset sign (user.h), or `PWM_PHASE_ORDER`, if reversed.
 5. Only after the above: small-speed is07; then is08/is10. is09/is12/is13 are later features.

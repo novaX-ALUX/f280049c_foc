@@ -17,7 +17,9 @@
  * SAFETY: the speed loop generates Iq automatically, clamped to +-USER_MOTOR_MAX_CURRENT_A. For this
  * first GaN spin that clamp must be set LOW (bench build lowers the 4116 to ~1.5 A) so that if the
  * motor will NOT start (e.g. wrong phase order) the speed PI cannot wind up into a large stalled
- * current. Run from a current-limited bench supply. Dead-band already scope-verified at 0 V bus.
+ * current. This is ENFORCED: the script reads userParams.maxCurrent_A after init and HARD-ABORTS
+ * (buffer still disabled) if it exceeds IMAX_GATE (2.0 A) -- speedRef alone does not bound Iq.
+ * Run from a current-limited bench supply. Dead-band already scope-verified at 0 V bus.
  * Every fault path disables the buffer FIRST (GPBSET), then reads back; if the disable did not take it
  * does NOT run the target. A final GPIO39 != 1 at exit is a hard nonzero exit.
  */
@@ -36,6 +38,7 @@ var ccxml=arguments[0], out=arguments[1];
 var SPEED_REF = (arguments.length > 2) ? Number(arguments[2]) : 20.0;   // Hz electrical
 var ACCEL     = (arguments.length > 3) ? Number(arguments[3]) : 20.0;   // Hz/s
 var VBUS_MIN=5.0, POLE_PAIRS=7;
+var IMAX_GATE=2.0;   // hard first-spin Iq-clamp ceiling (A); refuse a high-current image
 // HARD speed gate BEFORE touching hardware: keep the first spin slow.
 if(isNaN(SPEED_REF) || Math.abs(SPEED_REF) > 100.0){
     p("FATAL: speedRef_Hz=" + arguments[2] + " out of range -- require |speedRef| <= 100 Hz (first-spin guard).");
@@ -80,6 +83,16 @@ p("at dead-wait: flagEnableSys=" + es0 + " (0)  halHandle=" + hh + " (nonzero)")
 if(!(hh>0)) fail("halHandle invalid -- HAL_init incomplete.");
 if(es0!==0) fail("flagEnableSys != 0 -- not parked at enable-sys wait.");
 if(gpio39()!==1) fail("GPIO39 is LOW at the dead-wait -- buffer already enabled; setup must leave it HIGH.");
+
+// HARD current gate (buffer still DISABLED here): the speed PI winds Iq up to
+// +-userParams.maxCurrent_A, so speedRef alone does NOT bound current. A stalled / wrong-phase
+// rotor would pull the full clamp. Refuse to spin unless the loaded image was built with a low
+// clamp. userParams.maxCurrent_A is populated by USER_setParams() during the dead-wait init.
+var imax=getf("userParams.maxCurrent_A");
+p("max-current clamp: userParams.maxCurrent_A=" + f(imax,2) + " A  (first-spin gate: <= " + IMAX_GATE.toFixed(1) + " A)");
+if(isNaN(imax) || imax > IMAX_GATE)
+    fail("userParams.maxCurrent_A=" + f(imax,2) + " A exceeds the " + IMAX_GATE.toFixed(1)
+       + " A first-spin limit -- rebuild with a low USER_MOTOR_MAX_CURRENT_A (~1.5 A) bench image.");
 
 // pin speed ref to 0 before enabling so the lab's init default (50 Hz) doesn't apply.
 set("motorVars.speedRef_Hz","0",e);

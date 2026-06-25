@@ -28,9 +28,9 @@ Each script's header comment carries its exact usage line and pass/fail criteria
 | `diag_bus_sweep.js` | is the `adcData.dcBus_V` read path live or frozen? (raw count vs reported V) |
 | `diag_precision.js` | DSS float-readback precision check (expression eval vs raw IEEE754) |
 | `diag_oc_latch.js` | classify the product-main `moduleOverCurrent` latch after a forced OC |
-| `diag_can_state.js` | CANA / DroneCAN peripheral + FIFO state on the running product |
-| `diag_rx_read.js` | dump received DroneCAN frames from the RX FIFO |
-| `diag_tx_state.js` | dump TX mailbox / FIFO state |
+| `diag_can_state.js` | CANA / DroneCAN peripheral + FIFO state (reads `s_*` by symbol -- board-agnostic) |
+| `diag_rx_read.js` | RX FIFO state by ADDRESS; per-build addrs default to launchxl, override `txif=/ints=/rx=/tx=` (re-derive with `ofd2000 -g`) |
+| `diag_tx_state.js` | TX/RX FIFO state by ADDRESS; per-build addrs default to launchxl, override `txif=/ints=/rx=/tx=` (re-derive with `ofd2000 -g`) |
 | `dronecan_probe.py` | host-side serial DroneCAN node probe (enumerate / poll a node) |
 
 ## drv8305evm/ — LAUNCHXL-F280049C + BOOSTXL-DRV8305EVM
