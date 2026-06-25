@@ -11,7 +11,8 @@
 
 Bench: LaunchXL-F280049C docked to BOOSTXL-DRV8305EVM, AM-4116 outrunner (12N14P, 7 pole
 pairs, KV450), clamped on the stator base, no prop, 24 V supply (≈5 A current limit).
-All runs driven over DSS (`tools/flash/*.js`) since this CCS/DSS setup cannot call target
+All runs driven over DSS (`tools/flash/drv8305evm/*.js`, shared helpers in `tools/flash/common/`)
+since this CCS/DSS setup cannot call target
 functions; EN_GATE is asserted at register level (GPBSET/GPBCLEAR bit7 = GPIO39).
 
 ## Hard conclusions (validated — the hardware chain is GOOD)
@@ -124,7 +125,7 @@ possibly an encoder). **Do NOT pursue PWM-down / IDRIVE / GaN as a low-speed-obs
 ## Reusable bench tools (tools/flash/) + recorder fork
 - `run_if_char.js` — graded I-f plateaus, K complete short runs. **Runs on a clean is04 checkout.**
 - `run_if_rec.js` / `run_if_rampB.js` — in-ISR recorder time-series readout. **Require the is04
-  recorder fork:** apply `tools/flash/is04_if_recorder.patch` to the SDK is04 first, then rebuild.
+  recorder fork:** apply `tools/flash/drv8305evm/is04_if_recorder.patch` to the SDK is04 first, then rebuild.
   The SDK tree is gitignored and the fork is intentionally NOT committed there, so a clean checkout
   will NOT run these two until the patch is applied (`patch -p1 <…patch`; `patch -R -p1` reverts).
 - (existing) `diag_drv8305_spi.js`, `run_curcal.js`/`run_socal.js`, `run_draghi.js`/`run_5hz.js`,

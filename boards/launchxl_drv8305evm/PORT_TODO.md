@@ -52,7 +52,7 @@ The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic a
     | Ic | A9 | CMPSS6 | 3 |
     Applied in `HAL_setupCMPSSs` (J1_J2 branch): `cmpssHandle[]`={CMPSS3,CMPSS1,CMPSS6};
     `ASysCtl_selectCMP{H,L}PMux`→ SELECT_3=0 / SELECT_1=1 / SELECT_6=3; ePWM X-BAR TRIP9→MUX10(CMPSS6),
-    TRIP7→MUX00(CMPSS1), TRIP8→MUX04(CMPSS3). **Verified on hardware** (`tools/flash/diag_oc_latch.js`
+    TRIP7→MUX00(CMPSS1), TRIP8→MUX04(CMPSS3). **Verified on hardware** (`tools/flash/common/diag_oc_latch.js`
     re-cal test): zero motor current + PWM on no longer asserts `moduleOverCurrent`. Follow-up hardware
     evidence showed FOC modulation can still couple PWM-edge spikes into the comparator path, so the CMPSS
     output path is now pure digital-filtered output (no async OR) with a longer 9/15/10 filter window, wide
@@ -74,7 +74,7 @@ The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic a
   - [x] `build.sh` adds `drv8305.c` + `--define=DRV8305_SPI` based on BOARD; both boards compile cleanly
   - [x] **SDK lab bring-up path**: stock SDK labs call `HAL_enableDRV()` only inside
         `#ifdef DRV8320_SPI`; launchxl builds define `DRV8305_SPI`, so the lab mains do not enable the
-        gate themselves. DSS on this setup cannot call target functions, so `tools/flash/prepare_drv8305_gate.js`
+        gate themselves. DSS on this setup cannot call target functions, so `tools/flash/drv8305evm/prepare_drv8305_gate.js`
         and lab run scripts assert EN_GATE directly (GPIO39) after the lab reaches the `flagEnableSys`
         wait, then release `flagEnableSys`. Product firmware still calls `HAL_enableDRV()` directly.
   - ⚠️ **Pending hardware confirmation**: SPI communication (read status/ID), 6-PWM mode (Control 7), VDS overcurrent threshold/gate drive current/dead-band to be tuned per motor from measurement; SPI polarity set per MotorWare (POL0PHA0), verify with oscilloscope on board.

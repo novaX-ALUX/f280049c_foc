@@ -662,7 +662,7 @@ void HAL_setupCMPSSs(HAL_Handle handle)
     // disabled). Per F280049C datasheet Table 6-13 "Analog Pins and Internal Connections":
     //   C0 -> CMPSS1 HP/LP = 1 ;  B2 -> CMPSS3 HP/LP = 0 ;  A9 -> CMPSS6 HP/LP = 3.
     // (The previous value=4 selected PGAx_OUT -- the disabled PGA output -- a floating node that
-    //  tripped spuriously whenever PWM was enabled; verified on hardware via tools/flash/diag_oc_latch.js.)
+    //  tripped spuriously whenever PWM was enabled; verified on hardware via tools/flash/common/diag_oc_latch.js.)
     ASysCtl_selectCMPHPMux(ASYSCTL_CMPHPMUX_SELECT_1, 1);   // CMPSS1 <- ADCINC0 (ISENSE_B)
     ASysCtl_selectCMPLPMux(ASYSCTL_CMPLPMUX_SELECT_1, 1);
 
