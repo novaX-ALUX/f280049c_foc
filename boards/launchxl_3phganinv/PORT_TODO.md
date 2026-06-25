@@ -1,8 +1,13 @@
 # launchxl_3phganinv — LAUNCHXL-F280049C + BOOSTXL-3PhGaNInv Porting Checklist
 
-GaN bring-up platform: TI BOOSTXL-3PhGaNInv (SENS007, Rev A) on the F280049C LaunchPad,
-after the BOOSTXL-DRV8305EVM bring-up was set aside. The control core (FOC/FAST/motor ID/loop
-tuning) is board-agnostic and reused as-is; this directory is only the board layer.
+**On hold / historical validation platform.** This board was used after the DRV8305EVM path was
+set aside, but it is no longer the active product path. The active product target is
+`esc6288_revA`; keep this directory for historical bench evidence and regression builds, but do not
+start new feature work here unless it fixes shared code needed by esc6288.
+
+GaN bring-up platform: TI BOOSTXL-3PhGaNInv (SENS007, Rev A) on the F280049C LaunchPad. The control
+core (FOC/FAST/motor ID/loop tuning) is board-agnostic and reused as-is; this directory is only the
+board layer.
 
 Cloned from `boards/launchxl_drv8305evm/` (same LaunchPad Site 1; identical PWM + current-sense
 pins). Key deltas applied: no SPI gate driver, active-LOW PWM enable, remapped voltage channels,
@@ -86,11 +91,13 @@ sweeping (PWM_PHASE_ORDER=2 drew ~10 A at 24 V in a wrong frame). Suggested orde
 5. Restore `USER_MOTOR_MAX_CURRENT_A` (reverted to 8.0) / speed-loop gains and re-tune.
 Helpers added this session: `tools/flash/3phganinv/{check_3phganinv_is01,cal_is02_3phganinv,scope_deadtime_3phganinv,run_is06_3phganinv,run_is07_3phganinv}.js`.
 
-## Bench bring-up procedure (AM-4116 on this board)
+## Historical bench bring-up procedure (AM-4116 on this board)
 
-**Do NOT run is01→is13 in sequence.** This board has never run on hardware, the LMG5200 has no
-internal dead-time, and the AM-4116 (~40 mΩ) is unsafe on two stock labs (below). First-round goal is
-**is01 / is02 + 0 V dead-time scope + small-Iq is06 sanity**, not the full lab ladder.
+**Do NOT run is01→is13 in sequence.** This board did run on hardware (see the 2026-06-24 bench
+results above), but FAST never locked cleanly and the platform is paused. The LMG5200 has no
+internal dead-time, and the AM-4116 (~40 mΩ) is unsafe on two stock labs (below). If this board is
+ever resumed, treat the list below as the historical safe-order baseline, not as the current product
+bring-up path.
 
 Two hardware facts confirmed against the code (drive the order):
 - **Stock SDK labs do NOT enable GPIO39 on this board.** `HAL_enableDRV()` is only called under
@@ -122,7 +129,7 @@ Order (USB powers the LaunchPad; keep the 24 V bus OFF until step 4):
 
 Skipped on this board for the 4116: energized is03 V/f, is05 re-ID. Full-power 4116 → esc6288.
 
-## Deferred (follow-up)
+## Deferred (only if this board is resumed)
 - CAN bridge (`can_bridge.c`, CANA GPIO32/33 — free on Site 1) → enables `CAN_CHECK`/`PRODUCT`.
 - `product/product_main.c` board cases (limits, digital-OT path instead of analog NTC, init,
   offset-cal exception). Note: product reads `BOARD_GATE_FAULT_GPIO` when `BOARD_HAS_GATE_FAULT_INPUT`

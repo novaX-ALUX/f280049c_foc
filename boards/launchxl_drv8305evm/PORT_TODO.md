@@ -1,7 +1,12 @@
 # launchxl_drv8305evm — LAUNCHXL-F280049C + BOOSTXL-DRV8305EVM Porting Checklist
 
-**Hardware-decoupled validation platform** while the custom board `esc6288_revA` is being fabricated: use the TI official kit to validate firmware and motor first.
-The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic and 100% reusable; this directory only addresses the board layer.
+**On hold / historical validation platform.** This board was used to validate shared firmware and
+motor behavior before the esc6288 product path was ready. The active product target is now
+`esc6288_revA`; keep this directory for historical bench evidence and regression builds, but do not
+start new feature work here unless it fixes shared code needed by esc6288.
+
+The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic and reusable; this
+directory only addresses the DRV8305EVM board layer.
 
 ## Reusable Assets (verified)
 - Pin mapping (SysConfig): `c2000ware/boards/.meta/LAUNCHXL_F280049C.syscfg.json`
@@ -78,9 +83,11 @@ The control core (FOC/FAST/motor identification/loop tuning) is board-agnostic a
         and lab run scripts assert EN_GATE directly (GPIO39) after the lab reaches the `flagEnableSys`
         wait, then release `flagEnableSys`. Product firmware still calls `HAL_enableDRV()` directly.
   - ⚠️ **Pending hardware confirmation**: SPI communication (read status/ID), 6-PWM mode (Control 7), VDS overcurrent threshold/gate drive current/dead-band to be tuned per motor from measurement; SPI polarity set per MotorWare (POL0PHA0), verify with oscilloscope on board.
-- [ ] **Phase 4 Power-on Bring-up**: is02 calibration → is03 self-test (low voltage / low current first) → is05 motor identification → is06/07 loop tuning
+- [~] **Phase 4 Power-on Bring-up**: partially exercised historically (see `product/BENCH.md` and
+  `BENCH_NOTES_am4116.md`), then paused. Do not resume as the default path; esc6288 bring-up owns
+  current product validation.
 
-## Information Needed (before Phase 4)
+## Information Needed (if this board is resumed)
 - Motor model and parameters: pole pairs, rated current/voltage, Rs/Ls (can be identified by is05)
 - DC supply voltage (recommend starting at 12–24 V low voltage) and current limit
 - Connector site confirmation (default Site 1 / J1-J4; if connected to J5-J8, pin mapping changes)

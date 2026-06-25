@@ -1,8 +1,13 @@
-# Product main — launchxl bench bring-up (③-c)
+# Product main — historical launchxl bench bring-up (③-c)
+
+> Historical note: this runbook records the earlier `launchxl_drv8305evm` product-main bench
+> validation. It is not the active bring-up path anymore. The current product target is
+> `esc6288_revA`; use the root `README.md`, `boards/esc6288_revA/PORT_TODO.md`, and
+> `tools/flash/esc6288_revA/README.md` for current work.
 
 Bench runbook for `product/product_main.c` on **launchxl_drv8305evm + BOOSTXL-DRV8305EVM**.
 Validates the launchxl torque chain: DroneCAN RawCommand → `esc_control` → FAST Iq, and
-esc.Status / NodeStatus telemetry back. esc6288 is deferred (no schematic).
+esc.Status / NodeStatus telemetry back.
 
 > Safety first: current-limited supply, **no propeller**, start with a small `iq_max_A`.
 > The launchxl CMPSS path is routed, digitally filtered, and ePWM-blanked for this bench,
@@ -207,7 +212,8 @@ current and is deferred to is03; the voltage gain can be sanity-checked now (met
 Per motor, capture the identified `USER_MOTOR_Rs_Ohm`, `Ls_d/Ls_q_H`, `RATED_FLUX_VpHz` and back
 them into `motors/<motor>.h` (the select→is05→backfill→tune workflow).
 
-## Out of scope here
-esc6288 wiring (schematic / encoder / CMPSS / CAN pins), the is07 speed-PI ISR branch +
-real prop-park, active short brake, Flash persistence of node-id / park-ref, DroneCAN GetSet,
-and on-bus interop stress testing.
+## Historical scope boundary
+At the time of this launchxl bench, esc6288 wiring, encoder/CMPSS/CAN integration, speed-mode
+product plumbing, active brake, persistence, DroneCAN parameters, and on-bus interop were outside
+this runbook. Several of those items are now implemented for esc6288; this file should not be used
+as the current product status source.

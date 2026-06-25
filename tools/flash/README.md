@@ -60,7 +60,7 @@ Original validation board. EN_GATE bring-up, DRV8305 SPI/CSA, 7 mΩ shunt, BOOST
 
 LMG5200 GaN half-bridges, **no internal dead-time** (MCU dead-band is the only shoot-through
 protection). Paused: gate polarity + ~200 ns dead-time confirmed, but FAST never locked at low
-speed — see `boards/launchxl_3phganinv/PORT_TODO.md`. Run in order:
+speed — see `boards/launchxl_3phganinv/PORT_TODO.md`. Historical safe-order scripts:
 
 | order | script | purpose |
 |---|---|---|

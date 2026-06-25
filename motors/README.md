@@ -7,7 +7,8 @@ rated current/voltage, maximum speed, inertia, etc. Swapping a motor means swapp
 - board user.h wraps the SDK example motor chain in `#if (BUILD_MOTOR_ID==TEMPLATE)`:
   - Default `motor_template`: uses the SDK example motor (Teknic), consistent with historical behavior.
   - Real motor selected: example chain is skipped; `motors/<model>.h` provides all `USER_MOTOR_*` values.
-- IDs are registered in `config/build_config.h` + the `MOTOR` case in `build.sh`. Verified on both boards (20/20 pass).
+- IDs are registered in `config/build_config.h` + the `MOTOR` case in `build.sh`; build gates verify
+  the selected profile is wired into the target board/user.h path.
 
 ## Supported Motors (custom NovaX/AM series, 4 models)
 4 profiles are created and selectable. **Geometric pole pairs are filled** (4116=7, 62xx=14).
@@ -35,14 +36,20 @@ The **4116 profiles are back-filled from verified legacy FAST ID** (spin-confirm
 > this project rather than reusing the legacy numbers.
 
 ## Standard Workflow: Select Motor → is05 Identification → Back-fill → Tune Loops
-Example using `am_6215` on the validation board (same procedure for other motors, change `MOTOR=`):
+The product target is `esc6288_revA`. Run motor identification only after the esc6288 staged
+bring-up has passed far enough to make switching safe (rails/clock, OST, ADC, protection,
+dead-band/short-pulse). The old launchxl workflows are historical validation paths and are not the
+default place to identify new motor profiles.
+
+Example using `am_6215` on esc6288 after the bench safety checks pass (same procedure for other
+motors, change `MOTOR=`):
 
 0. **Pre-power safety check**: pole pairs correct (geometry), `MAX_CURRENT_A`/`RES_EST`/`IND_EST` within power supply current limit,
    CMPSS overcurrent wired (before high-current operation; see board PORT_TODO), power supply set to low voltage (12–24 V) first.
 
 1. **Identification**:
    ```bash
-   BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is05_motor_id bash build.sh
+   BOARD=esc6288_revA MOTOR=am_6215 LAB=is05_motor_id bash build.sh
    ```
    Flash and run; read FAST-estimated `Rs / Ls_d / Ls_q / flux (Flux)` (via watch variables / datalog).
 
@@ -52,13 +59,13 @@ Example using `am_6215` on the validation board (same procedure for other motors
 
 3. **Verify current loop**:
    ```bash
-   BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is06_torque_control bash build.sh
+   BOARD=esc6288_revA MOTOR=am_6215 LAB=is06_torque_control bash build.sh
    ```
    Run with small Iq on a free shaft; confirm current loop is stable and phase order is correct (no reverse rotation / no step-out).
 
 4. **Speed loop + tuning**:
    ```bash
-   BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is07_speed_control bash build.sh
+   BOARD=esc6288_revA MOTOR=am_6215 LAB=is07_speed_control bash build.sh
    ```
    Tune `INERTIA_Kgm2` and speed-loop Kp/Ki; converge `FREQ_MAX_HZ`/`RATED_*`/`VOLT_*` to measured operating range.
 
