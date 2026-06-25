@@ -2,7 +2,7 @@
  * can_bridge FIFO state by address, resume. Use to compare s_rx across host cansend bursts on ONE
  * continuous instance. Addresses (ofd2000 -g, esc0_node25/product.out):
  *   s_tx_in_flight 0xcf80, s_ints_enabled 0xcf81, s_rx 0xcf82, s_tx 0xd046.
- * Usage: dss.sh tools/flash/diag_rx_read.js <ccxml>  */
+ * Usage: dss.sh tools/flash/common/diag_rx_read.js <ccxml>  */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);
 importPackage(Packages.java.lang);

@@ -4,7 +4,7 @@
  * dronecan_fifo_t = { uint16 head; uint16 tail; uint32 dropped; frame buf[16]; }
  * Two samples ~1.2s apart: tail moving + dropped==0 => TX draining (frames ACKed/leaving);
  * tail frozen + dropped climbing => TX stuck (no ACK on the bus -> wiring/adapter PHY).
- * Usage: dss.sh tools/flash/diag_tx_state.js <ccxml> <product.out>  */
+ * Usage: dss.sh tools/flash/common/diag_tx_state.js <ccxml> <product.out>  */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);
 importPackage(Packages.java.lang);

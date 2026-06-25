@@ -3,7 +3,7 @@
  * BOOSTXL-3PhGaNInv on LAUNCHXL-F280049C, over the debugger. Reports current/voltage ADC offsets,
  * the zero-current residual + noise band, and the bus sense.
  *
- * Usage: dss.sh tools/flash/cal_is02_3phganinv.js <ccxml> <is02_offset_gain_cal.out>
+ * Usage: dss.sh tools/flash/3phganinv/cal_is02_3phganinv.js <ccxml> <is02_offset_gain_cal.out>
  *
  * KEY DIFFERENCE vs the DRV8305 cal_is02.js: this script DOES NOT enable the gate buffer. The GaN
  * board's current sense is an EXTERNAL INA240 (always powered, independent of the SN74AVC8T245 PWM

@@ -17,7 +17,7 @@
  * 20/25 Hz are NOT default -- pass them explicitly as a guarded opt-in only after low freqs are stable
  * (BENCH_NOTES: 20 Hz open-loop tends to slip).
  *
- * Usage: dss.sh tools/flash/run_if_char.js <ccxml> <is04.out> \
+ * Usage: dss.sh tools/flash/drv8305evm/run_if_char.js <ccxml> <is04.out> \
  *          [id_A=3.0] [freqs="5,8,10,12,16"] [K=3] [accel_Hzps=8] [dwell_s=2] [plateau_s=4] [poles=7]
  * Safety: current-limited supply, no prop, clamped. Per-run abort on overcurrent / slip / fault.
  *   Note: software abort is a BETWEEN-run check; real-time over-current protection is hardware CMPSS.

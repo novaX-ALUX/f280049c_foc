@@ -6,7 +6,7 @@
  * which are unreliable in this CCS/DSS setup.
  *
  * Usage:
- *   dss.sh tools/flash/diag_drv8305_spi.js <ccxml> <lab.out>
+ *   dss.sh tools/flash/drv8305evm/diag_drv8305_spi.js <ccxml> <lab.out>
  */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);

@@ -1,7 +1,7 @@
 /* CAN bring-up diagnostic: read the can_bridge FIFO/TX state + CANA error counters to tell
  * "target TX with no ACK" (bus-off / TEC high -> physical/bitrate/termination) apart from
  * "target idle" (nothing queued). Attaches, samples twice ~1s apart, leaves target running.
- * Usage: dss.sh tools/flash/diag_can_state.js <ccxml> <product.out>  */
+ * Usage: dss.sh tools/flash/common/diag_can_state.js <ccxml> <product.out>  */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);
 importPackage(Packages.java.lang);

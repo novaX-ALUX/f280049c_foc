@@ -4,7 +4,7 @@
  * adcData.I_A printed here: at angle 0, Id splits as Ia=+Id, Ib=Ic=-Id/2. If the clamp on the
  * max-current phase reads ~Id -> scale correct; if it reads N*Id -> USER_CURRENT_SF is off by N.
  * Fixed angle => DC current => safe to halt briefly to read (PWM free-runs, current persists).
- * Usage: dss.sh tools/flash/run_curcal.js <ccxml> <is04.out> [holdSec=8]
+ * Usage: dss.sh tools/flash/drv8305evm/run_curcal.js <ccxml> <is04.out> [holdSec=8]
  * Safety: current-limited supply, no prop, clamped. Aborts on fault. Register EN_GATE. */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);

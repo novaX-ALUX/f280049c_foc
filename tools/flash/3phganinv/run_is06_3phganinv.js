@@ -4,7 +4,7 @@
  * a clean offset cal, commands a small Iq, lets the free shaft spin, reads the FAST online flux +
  * no-load speed, fault-aborts, and stops clean. is06 is torque control (Iq via IdqSet_A.value[1]).
  *
- * Usage: dss.sh tools/flash/run_is06_3phganinv.js <ccxml> <is06_torque_control.out> [iq_A]
+ * Usage: dss.sh tools/flash/3phganinv/run_is06_3phganinv.js <ccxml> <is06_torque_control.out> [iq_A]
  *        iq_A defaults to 0.1 A. HARD max 0.5 A (GaN bring-up guard -- see below).
  *
  * GaN polarity (OPPOSITE of the DRV8305 run_is06.js -- do NOT reuse that one):

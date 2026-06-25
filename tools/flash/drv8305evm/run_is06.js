@@ -4,7 +4,7 @@
  * FAST online flux estimate (convention-independent wind check) + no-load speed, fault-abort, clean
  * stop. is06 is torque control (Iq command via IdqSet_A.value[1]); FAST estimates angle/speed/flux.
  *
- * Usage: dss.sh tools/flash/run_is06.js <ccxml> <is06_torque_control.out>  [iq_A]
+ * Usage: dss.sh tools/flash/drv8305evm/run_is06.js <ccxml> <is06_torque_control.out>  [iq_A]
  *
  * KV cross-check: motorVars.flux_VpHz is FAST's ONLINE flux estimate (labs.h: EST_getFlux_Wb*2pi).
  * Treat it as a TREND indicator, NOT proof -- it is not yet established that small-Iq steady state

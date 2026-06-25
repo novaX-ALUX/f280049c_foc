@@ -3,7 +3,7 @@
  * motor still won't follow rotation at <=1.5A. The legacy "0.4A" was DC input, not phase current, so
  * the real drag current is higher. Align with a strong Id, then ramp the forced angle slowly, ONE
  * uninterrupted run (no halt chopping). WATCH: does the rotor now get dragged SMOOTHLY around?
- * Usage: dss.sh tools/flash/run_draghi.js <ccxml> <is04.out> [id_A=3.0] [refHz=2] [runSec=16]
+ * Usage: dss.sh tools/flash/drv8305evm/run_draghi.js <ccxml> <is04.out> [id_A=3.0] [refHz=2] [runSec=16]
  * Safety: current-limited supply, no prop, clamped. Aborts on fault. Register EN_GATE. */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);

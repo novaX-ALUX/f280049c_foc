@@ -3,7 +3,7 @@
  * Loads is01_intro_hal, runs to the "while(flagEnableSys==false)" dead-wait, and CONFIRMS the power
  * stage is parked safe. It NEVER enables the gate buffer and NEVER spins the motor.
  *
- * Usage: dss.sh tools/flash/check_3phganinv_is01.js <ccxml> <is01_intro_hal.out>
+ * Usage: dss.sh tools/flash/3phganinv/check_3phganinv_is01.js <ccxml> <is01_intro_hal.out>
  *
  * GaN polarity reminder -- nEn_uC is ACTIVE-LOW (SN74AVC8T245 OE on GPIO39):
  *     GPIO39 HIGH = buffer DISABLED (safe-off, no PWM reaches the LMG5200 inputs)

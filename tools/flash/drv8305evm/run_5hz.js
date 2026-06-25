@@ -2,7 +2,7 @@
  * drag holds sync with minimal slip, then hold in short monitored segments. HARD SAFETY: abort if
  * any phase current > IMAX (5A) or |Iq_in| > IQMAX (2.5A). Reads the FAST estimate (fm_lp) to see if,
  * with the rotor nearly synced (Iq~0), FAST estimates near the true speed or still over-estimates.
- * Usage: dss.sh tools/flash/run_5hz.js <ccxml> <is04.out> [refHz=5] [id_A=3]
+ * Usage: dss.sh tools/flash/drv8305evm/run_5hz.js <ccxml> <is04.out> [refHz=5] [id_A=3]
  * Safety: current-limited supply, no prop, clamped. Register EN_GATE. */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);

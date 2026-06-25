@@ -7,7 +7,7 @@
  *   - spins backward / estimated speed goes opposite the ref      -> phase order reversed
  *   - stalls/buzzes, speed PI saturates Iq at the clamp           -> phase order scrambled (swap)
  *
- * Usage: dss.sh tools/flash/run_is07_3phganinv.js <ccxml> <is07_speed_control.out> [speedRef_Hz] [accel_Hzps]
+ * Usage: dss.sh tools/flash/3phganinv/run_is07_3phganinv.js <ccxml> <is07_speed_control.out> [speedRef_Hz] [accel_Hzps]
  *        speedRef_Hz default 20 (electrical), HARD max 100. accel default 20 Hz/s.
  *
  * GaN polarity (do NOT reuse the DRV8305 scripts): nEn_uC ACTIVE-LOW.

@@ -7,7 +7,7 @@
  * Requires the is04 BENCH-FORK recorder (g_rec_arm/idx/decim + g_rec_fm/id/iq/cmd/ipk[]).
  * UNITS: fm_lp_Hz(elec) = fm_lp_rps / (2*pi), directly comparable to the live commanded freq g_rec_cmd.
  *
- * Usage: dss.sh tools/flash/run_if_rampB.js <ccxml> <is04.out> \
+ * Usage: dss.sh tools/flash/drv8305evm/run_if_rampB.js <ccxml> <is04.out> \
  *          [target_Hz=35] [id_A=3.0] [accel_Hzps=2] [decim=1500] [dwell_s=3] [slipIq_A=4] [poles=7] [isr_Hz=20000]
  *   REC_N=256 @ decim=1500 / 20kHz ISR -> 75ms/sample -> ~19s capture; accel=2 reaches 35Hz in ~17.5s.
  * Real-time over-current protection is hardware CMPSS (it latches faultUse bit4 and the bg loop disables

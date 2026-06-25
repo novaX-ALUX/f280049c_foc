@@ -2,7 +2,7 @@
  * cal_is02.js - drive is02_offset_gain_cal on launchxl over the debugger and read back the
  * analog front-end health: current/voltage ADC offsets, zero-current residual + noise, bus sense.
  *
- * Usage: dss.sh tools/flash/cal_is02.js <ccxml> <is02_offset_gain_cal.out>
+ * Usage: dss.sh tools/flash/drv8305evm/cal_is02.js <ccxml> <is02_offset_gain_cal.out>
  *
  * Why a DEDICATED script (not the generic prepare_drv8305_gate.js): is02 is the ONLY sensorless
  * lab that re-arms offset calibration forever -- after each 50000-ISR cal pass it latches the

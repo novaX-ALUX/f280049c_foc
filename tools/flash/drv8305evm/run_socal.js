@@ -4,7 +4,7 @@
  *   Id = 1 A      -> max-current phase ~ +70 mV from 1.65, the other two ~ -35 mV
  *   Id = 2 A      -> roughly double
  * (70 mV/A = 7 mOhm shunt x 10 V/V CSA gain.) Firmware adcData.I_A is printed for cross-check.
- * Usage: dss.sh tools/flash/run_socal.js <ccxml> <is04.out> [holdSec=22]
+ * Usage: dss.sh tools/flash/drv8305evm/run_socal.js <ccxml> <is04.out> [holdSec=22]
  * Safety: current-limited, no prop, clamped. Aborts on fault. Register EN_GATE. */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);

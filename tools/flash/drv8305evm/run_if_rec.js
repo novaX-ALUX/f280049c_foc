@@ -7,7 +7,7 @@
  * Requires the is04 BENCH-FORK recorder globals: g_rec_arm/g_rec_idx/g_rec_decim/g_rec_fm[]/_id[]/_iq[].
  * UNITS: fm_lp_Hz(elec) = fm_lp_rps / (2*pi)  -- directly comparable to the commanded freq (NOT *p).
  *
- * Usage: dss.sh tools/flash/run_if_rec.js <ccxml> <is04.out> \
+ * Usage: dss.sh tools/flash/drv8305evm/run_if_rec.js <ccxml> <is04.out> \
  *          [cmd_Hz=10] [id_A=3.0] [accel_Hzps=4] [decim=400] [dwell_s=3] [poles=7] [isr_Hz=20000]
  *   decim=400 @ 20kHz ISR -> 50 Hz sample rate; buffer IF_REC_N=256 -> ~5.1 s capture.
  *   NOTE: dropping USER_PWM_FREQ_kHz changes the ISR rate (ISR = PWM_kHz*1000/NUM_PWM_TICKS_PER_ISR_TICK).

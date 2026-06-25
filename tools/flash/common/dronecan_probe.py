@@ -14,7 +14,7 @@ Prereqs:
   * 1 Mbit bus (BOARD_CAN_BITRATE), 120 ohm termination, adapter = /dev/ttyACM2 (0483:5740).
 
 Usage:
-  python3 tools/flash/dronecan_probe.py [device=/dev/ttyACM2] [target_node=25] [our_node=127]
+  python3 tools/flash/common/dronecan_probe.py [device=/dev/ttyACM2] [target_node=25] [our_node=127]
 """
 import sys
 import dronecan

@@ -4,7 +4,7 @@
  * on all three half-bridges, enables the PWM buffer so the complementary EPWM edges reach the
  * LMG5200 inputs, and holds it so you can scope the high/low-side non-overlap. Then disables again.
  *
- * Usage: dss.sh tools/flash/scope_deadtime_3phganinv.js <ccxml> <is02_offset_gain_cal.out> [hold_s]
+ * Usage: dss.sh tools/flash/3phganinv/scope_deadtime_3phganinv.js <ccxml> <is02_offset_gain_cal.out> [hold_s]
  *        hold_s defaults to 20 s. NOTE: this loads is02_offset_gain_cal.out, NOT an is03 build.
  *
  * Why is02 and NOT is03: is03's V/f path scales the voltage by oneOverDcBus = 1.0/dcBus_V

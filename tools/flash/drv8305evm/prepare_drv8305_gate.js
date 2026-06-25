@@ -2,7 +2,7 @@
  * prepare_drv8305_gate.js - enable the DRV8305 gate driver for ANY launchxl sensorless_foc SDK lab,
  * over the debugger, with enforced readiness checks. Lab-agnostic; use for is02/is03/is04/is05/...
  *
- * Usage: dss.sh tools/flash/prepare_drv8305_gate.js <ccxml> <lab.out>
+ * Usage: dss.sh tools/flash/drv8305evm/prepare_drv8305_gate.js <ccxml> <lab.out>
  *
  * Why: every SDK sensorless lab that drives the power stage calls HAL_enableDRV() only under
  * #ifdef DRV8320_SPI (e.g. is05_motor_id.c:426), but launchxl builds with DRV8305_SPI, so the lab

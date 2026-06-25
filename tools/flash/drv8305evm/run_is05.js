@@ -3,7 +3,7 @@
  * debugger: EN_GATE bring-up, safety gate, run the ID state machine to completion, read back the
  * identified Rs / Ls_d / Ls_q / flux, with fault-abort and a clean stop.
  *
- * Usage: dss.sh tools/flash/run_is05.js <ccxml> <is05_motor_id.out>
+ * Usage: dss.sh tools/flash/drv8305evm/run_is05.js <ccxml> <is05_motor_id.out>
  *
  * FAST commands CURRENT (RES_EST_CURRENT 1.0 A, IND_EST_CURRENT -1.0 A; clamp MAX_CURRENT 5.0 A),
  * so it is inherently safe for an ultra-low-Rs motor (unlike is03 V/f, where 4 V across 20 mO is an

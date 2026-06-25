@@ -2,7 +2,7 @@
  * run_is03.js - drive is03_hardware_test (scalar V/f open-loop spin) on launchxl over the debugger,
  * with EN_GATE bring-up, a safety gate, fault-abort, and a clean stop. First-spin bench helper.
  *
- * Usage: dss.sh tools/flash/run_is03.js <ccxml> <is03_hardware_test.out>  [speedRef_Hz] [duration_s] [accel_Hzps] [align_s]
+ * Usage: dss.sh tools/flash/drv8305evm/run_is03.js <ccxml> <is03_hardware_test.out>  [speedRef_Hz] [duration_s] [accel_Hzps] [align_s]
  *
  * is03 is open-loop V/f: ANGLE_GEN forces the commutation angle, VS_FREQ sets the voltage from the
  * commanded frequency (no current loop, flag_bypassMotorId). It spins once flagRunIdentAndOnLine=1

@@ -3,7 +3,7 @@
  * RampUp, then halts and reports. Does NOT complete the full (destructive) ID -- stops after RampUp.
  * Pass/judge: (1) rotor spins up CONTINUOUSLY (your eyes), (2) speedEst tracks RampUp (~20Hz, not
  * garbage), (3) Vs not saturated & faultUse=0.
- * Usage: dss.sh tools/flash/run_is05_rampup.js <ccxml> <is05.out> <rampupId_A> [runSec=16]
+ * Usage: dss.sh tools/flash/drv8305evm/run_is05_rampup.js <ccxml> <is05.out> <rampupId_A> [runSec=16]
  * Safety: current-limited supply, no prop, clamped. Register EN_GATE. */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);

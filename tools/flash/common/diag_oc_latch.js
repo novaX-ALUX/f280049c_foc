@@ -1,7 +1,7 @@
 /*
  * diag_oc_latch.js - classify the launchxl moduleOverCurrent fault on the running product main.
  *
- * Usage: dss.sh tools/flash/diag_oc_latch.js <ccxml> <product.out>
+ * Usage: dss.sh tools/flash/common/diag_oc_latch.js <ccxml> <product.out>
  *
  * Loads + runs the product main through the first offset cal (bus-cap inrush), then forces a
  * SECOND offset cal with the bus already charged and zero motor current, and samples the

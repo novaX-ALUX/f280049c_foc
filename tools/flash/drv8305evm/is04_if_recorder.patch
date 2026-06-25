@@ -1,14 +1,14 @@
 # is04_if_recorder.patch -- BENCH-ONLY fork of the SDK is04 lab adding a small in-ISR ring buffer
 # (g_rec_*) that captures fm_lp / Id_in / Iq_in / cmd / phase-peak time-series WITHOUT mid-run halts.
 #
-# WHY: the DSS scripts tools/flash/run_if_rec.js and tools/flash/run_if_rampB.js DEPEND on these
-# g_rec_* symbols. tools/flash/run_if_char.js does NOT (it runs on a clean is04 checkout).
+# WHY: the DSS scripts tools/flash/drv8305evm/run_if_rec.js and tools/flash/drv8305evm/run_if_rampB.js DEPEND on these
+# g_rec_* symbols. tools/flash/drv8305evm/run_if_char.js does NOT (it runs on a clean is04 checkout).
 #
 # APPLY (the SDK tree is gitignored; this fork is intentionally NOT committed into it):
 #   cd C2000Ware_MotorControl_SDK_6_00_00_00/solutions/common/sensorless_foc/source
-#   patch -p1 < <repo>/tools/flash/is04_if_recorder.patch
+#   patch -p1 < <repo>/tools/flash/drv8305evm/is04_if_recorder.patch
 #   # rebuild: BOARD=launchxl_drv8305evm MOTOR=am_4116_kva LAB=is04_signal_chain_test bash build.sh
-# REVERT:  patch -R -p1 < <repo>/tools/flash/is04_if_recorder.patch
+# REVERT:  patch -R -p1 < <repo>/tools/flash/drv8305evm/is04_if_recorder.patch
 #
 --- a/is04_signal_chain_test.c	2026-06-23 16:32:42.472861207 +0800
 +++ b/is04_signal_chain_test.c	2026-06-23 16:32:08.059699316 +0800
