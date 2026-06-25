@@ -154,9 +154,11 @@ extern "C" {
 #endif
 
 //! \brief PWM dead-band delay counts (TBCLK = 100 MHz -> 10 ns/count).
-//! The JSM6288T is a 6-input INDEPENDENT driver and does NOT insert dead time, so the
-//! MCU must. 50 counts = 500 ns is a conservative bring-up value; measure Vds /
-//! shoot-through on the bench and reduce toward the FETs' switching needs.
+//! The JSM6288T (6-input independent driver) DOES insert its own anti-shoot-through dead time
+//! (~200 ns typ) plus an interlock (HIN=LIN=H -> both outputs off), per datasheet. This MCU
+//! dead-band ADDS to the chip's ~200 ns as extra conservative bring-up margin -- it is NOT the
+//! sole protection. 50 counts = 500 ns; scope Vds and tune DOWN on the bench (the chip's ~200 ns
+//! is a floor, but real FET non-overlap also depends on tprop/rise/fall, Qg/Coss, ringing).
 #define HAL_PWM_DBFED_CNT         50    // ~500 ns falling-edge dead time
 
 //! \brief see HAL_PWM_DBFED_CNT

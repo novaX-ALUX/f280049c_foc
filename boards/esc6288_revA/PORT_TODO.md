@@ -14,7 +14,8 @@ header comment in `drivers/include/board.h`.
 - **Clock**: 10 MHz resonator → `SYSCTL_IMULT(20)` → 100 MHz; both clock asserts use a
   board-local 10 MHz osc const (`hal.c`). *If SYSCLK were wrong everything downstream is 2× off.*
 - **PWM**: phase A=EPWM1 (GPIO0/1), B=EPWM2 (GPIO2/3), C=EPWM3 (GPIO4/5); `PWM_PHASE_ORDER`
-  default 0=ABC. Dead-band 50 cnt (~500 ns) — the JSM6288T does NOT insert dead time.
+  default 0=ABC. Dead-band 50 cnt (~500 ns) — extra margin ON TOP of the JSM6288T's own
+  built-in ~200 ns anti-shoot-through dead time + interlock (datasheet); see the bench item.
 - **Current**: `USER_ADC_FULL_SCALE_CURRENT_A = 330` (±165 A), offsets −165 A; PGAs disabled
   (external INA path). IA=ADCINB15, IB=ADCINA1, IC=ADCINC2 (distinct cores).
 - **Voltage**: `USER_ADC_FULL_SCALE_VOLTAGE_V = 102.63`; Udc=ADCINA6, UA/UB/UC=B6/B3/C6.
@@ -48,9 +49,15 @@ header comment in `drivers/include/board.h`.
    1–2 ms maps to throttle; RGB status colors.
 
 ## [BENCH] Confirm / tune
-- **JSM6288T dead time** — datasheet (`docs/JSM6288T.pdf`) confirms independent 6-input
-  high/low-side drive (no shoot-through interlock); ton/toff ~120-250 ns. The MCU 500 ns
-  dead-band (`HAL_PWM_DBRED_CNT/DBFED_CNT`, `hal.h`) is required; measure Vds and tune down.
+- **JSM6288T dead time** — datasheet (`docs/JSM6288T.pdf`) confirms a per-phase HIN/LIN 6-input
+  driver that DOES have built-in anti-shoot-through protection: an interlock (HIN=LIN=H → both
+  outputs off, truth table p.8 / functional block "DeadTime & Control Logic") AND a ~200 ns
+  internal dead time (DT min 100 / typ 200 / max 300 ns, p.5; waveform fig. 6-3). ton/toff
+  ~120-250 ns. The MCU 500 ns dead-band (`HAL_PWM_DBRED_CNT/DBFED_CNT`, `hal.h`) is therefore
+  EXTRA conservative margin, not the sole protection. [BENCH] scope the half-bridge Vds / gate
+  waveforms and tune the MCU dead-band DOWN — the chip's ~200 ns is a floor, but the real
+  non-overlap at the FET also depends on propagation/rise/fall, Qg/Coss and layout ringing, so
+  verify on the scope rather than trusting the additive number (do not assume 0 is safe).
 - **FET NVMFS5C612NL Vds rating** — this is the hard OV ceiling. Confirm the 12S OV
   (`HAL_BUS_OV_CMPSS_DACH` ≈ 56 V, and product `vbus_ov_set = 54`) sits safely below it.
 - **OC thresholds** — product `oc_set_A = 30` and `ESC6288_ISR_OC_A = 60` are conservative
