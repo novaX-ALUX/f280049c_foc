@@ -268,9 +268,11 @@ esc_result_t esc_control_step(esc_control_state_t *st,
     st->status_bits = 0u;
     if (timed_out) {
         st->status_bits |= ESC_ST_CMD_TIMEOUT;
-        /* Report the mode actually emitted: brake only happens while armed. */
-        st->status_bits |= (c->failsafe_brake && arm) ? ESC_ST_FAILSAFE_BRAKE
-                                                       : ESC_ST_FAILSAFE_COAST;
+        /* Report the mode actually emitted: brake only happens while armed AND no hard fault is
+         * active (a fault force-coasts the bridge above, overriding the failsafe brake). */
+        st->status_bits |= (st->hard_fault_bits == 0u && c->failsafe_brake && arm)
+                               ? ESC_ST_FAILSAFE_BRAKE
+                               : ESC_ST_FAILSAFE_COAST;
     }
     if (!st->ref.valid) {
         st->status_bits |= ESC_ST_PARK_REF_UNLEARNED;

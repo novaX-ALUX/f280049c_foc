@@ -31,9 +31,14 @@ bool nvparam_validate(nvparam_t *p)
         p->park_ref_target_rev = 0.0f;
         clean = false;
     }
-    if (!p->park_ref_valid && p->park_ref_target_rev != 0.0f) {
-        p->park_ref_target_rev = 0.0f;   /* keep the invalid record canonical */
-        clean = false;
+    /* keep the invalid record canonical: zero the target. Use the bit pattern, not `!= 0.0f`,
+     * so negative zero (0x80000000) is also caught (-0.0f compares equal to 0.0f). */
+    if (!p->park_ref_valid) {
+        union { float f; uint32_t u; } z; z.f = p->park_ref_target_rev;
+        if (z.u != 0u) {
+            p->park_ref_target_rev = 0.0f;
+            clean = false;
+        }
     }
 
     return clean;

@@ -68,11 +68,18 @@ int main(void)
         CHECK_NEAR(ntc_counts_to_celsius(&c, 1), 150.0f, 1e-3f);
         CHECK_NEAR(ntc_counts_to_celsius(&c, 4095), 150.0f, 1e-3f);
         CHECK_NEAR(ntc_counts_to_celsius(&c, 4096), 150.0f, 1e-3f);
+        /* Boundary: exactly NTC_RAIL_GUARD_COUNTS (2) from either rail must ALSO fail-safe
+         * (inclusive guard). The low rail is the safety-critical one: count 2 would otherwise
+         * read extreme-cold and suppress the over-temp trip on a dead high-side sensor. */
+        CHECK_NEAR(ntc_counts_to_celsius(&c, 2), 150.0f, 1e-3f);
+        CHECK_NEAR(ntc_counts_to_celsius(&c, 4094), 150.0f, 1e-3f);
     }
 
-    /* In-band-but-impossibly-cold count clamps to -40 (NOT flagged open: it is past the guard). */
+    /* Just inside the guard (count 3) is in-band: pins the boundary at exactly 2, proving the
+     * guard is inclusive-at-2 and not over-guarding. Impossibly-cold -> clamps to -40 (not open). */
     {
         ntc_cfg_t c = base_cfg();
+        CHECK_NEAR(ntc_counts_to_celsius(&c, 3), -40.0f, 1e-3f);
         CHECK_NEAR(ntc_counts_to_celsius(&c, 50), -40.0f, 1e-3f);
     }
 

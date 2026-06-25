@@ -150,5 +150,20 @@ int main(void)
         CHECK(a[NVPARAM_WORDS - 1u] != b[NVPARAM_WORDS - 1u]);
     }
 
+    /* a CRC-valid record flagged invalid but carrying negative zero (0x80000000) in the park-ref
+     * float must be canonicalized to +0.0 and reported SANITIZED (not OK). */
+    {
+        uint16_t buf[NVPARAM_WORDS];
+        buf[0] = NVPARAM_MAGIC; buf[1] = NVPARAM_VERSION; buf[2] = 0u;
+        buf[3] = 0u;                 /* park_ref_valid = false */
+        buf[4] = 0x0000u; buf[5] = 0x8000u;   /* -0.0f */
+        buf[6] = nvparam_crc16(buf, NVPARAM_WORDS - 1u);
+        nvparam_t q;
+        CHECK(nvparam_decode(buf, &q) == NVPARAM_OK_SANITIZED);
+        CHECK(!q.park_ref_valid);
+        { union { float f; uint32_t u; } z; z.f = q.park_ref_target_rev;
+          CHECK(z.u == 0u); }        /* canonical +0.0, not -0.0 */
+    }
+
     CHECK_DONE();
 }

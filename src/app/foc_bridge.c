@@ -38,6 +38,7 @@ void foc_bridge_gate_speed(foc_setpoint_t *sp, bool speed_allowed)
 {
     if (sp->speed_mode && !speed_allowed) {
         sp->enable       = false;   /* glue's (!enable) branch coasts -> fail-safe disable */
+        sp->brake        = false;   /* coast, never active-brake, on a denied speed setpoint */
         sp->speed_ref_hz = 0.0f;
         sp->iq_ref_A     = 0.0f;
     }

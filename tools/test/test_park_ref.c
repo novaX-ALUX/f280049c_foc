@@ -106,5 +106,22 @@ int main(void)
         CHECK_NEAR(park_ref_target(&st), 0.30f, 1e-4f);
     }
 
+    /* invalidate with a store request still pending: must drop the request so the app never
+     * persists the now-invalid angle (which would skip re-learn on the next boot). */
+    {
+        g_nv_valid = false;
+        park_ref_cfg_t c = base_cfg();
+        park_ref_state_t st;
+        park_ref_init(&st, &c, nv_load, NULL);
+        park_ref_update(&st, true, false, 0.0f, 0.0f, 0.0f, true, 0.42f, 0.2f); /* capture */
+        CHECK(park_ref_valid(&st));
+        CHECK(st.needs_store);                 /* request raised, app has not cleared it yet */
+
+        park_ref_invalidate(&st);              /* re-learn requested before the app persisted */
+        CHECK(!park_ref_valid(&st));
+        CHECK(!st.needs_store);                /* pending request dropped */
+        CHECK_NEAR(st.new_target, 0.0f, 1e-6f);
+    }
+
     CHECK_DONE();
 }

@@ -18,7 +18,7 @@
 typedef struct {
     volatile uint16_t head;     /* producer index */
     volatile uint16_t tail;     /* consumer index */
-    uint32_t dropped;           /* frames dropped on full (producer-only counter) */
+    volatile uint32_t dropped;  /* frames dropped on full (producer writes, consumer reads for diag) */
     dronecan_frame_t buf[DRONECAN_FIFO_CAP];
 } dronecan_fifo_t;
 

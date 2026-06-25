@@ -58,6 +58,10 @@ void park_ref_invalidate(park_ref_state_t *st)
 {
     st->valid         = false;
     st->still_timer_s = 0.0f;
+    /* Drop any store request still pending from a prior capture: otherwise the app would persist
+     * the now-invalidated angle and skip the re-learn on the next boot. */
+    st->needs_store   = false;
+    st->new_target    = 0.0f;
 }
 
 void park_ref_clear_store_request(park_ref_state_t *st)

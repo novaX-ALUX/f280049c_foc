@@ -191,5 +191,20 @@ int main(void)
         CHECK_NEAR(sp.iq_ref_A, 0.0f, 1e-6f);
     }
 
+    /* speed gate: a denied speed-mode setpoint must coast, never active-brake (brake cleared). */
+    {
+        foc_setpoint_t sp = {0};
+        sp.speed_mode = true;
+        sp.enable = true;
+        sp.brake = true;                    /* upstream had an active-brake request */
+        sp.speed_ref_hz = 40.0f;
+        sp.iq_ref_A = 3.0f;
+        foc_bridge_gate_speed(&sp, false);
+        CHECK(!sp.enable);
+        CHECK(!sp.brake);                   /* coast-disable, NOT active brake */
+        CHECK_NEAR(sp.speed_ref_hz, 0.0f, 1e-6f);
+        CHECK_NEAR(sp.iq_ref_A, 0.0f, 1e-6f);
+    }
+
     CHECK_DONE();
 }

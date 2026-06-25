@@ -428,5 +428,26 @@ int main(void)
         CHECK(!o.enable);
     }
 
+    /* failsafe_brake=true AND a hard fault co-occurring with the timeout: the fault force-coasts
+     * the bridge, so telemetry must report COAST (not BRAKE) to match the actually-emitted output. */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        c.failsafe_brake = true;
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);          /* armed + running */
+        fb.vbus_V = 35.0f;                     /* overvolt fault ... */
+        esc_control_step(&st, NULL, &fb, 0.2f, &o, &t);  /* ... AND link aged out */
+        CHECK(t.state == ESC_STATE_FAULT);
+        CHECK((t.hard_fault_bits & ESC_HF_OVERVOLT) != 0u);
+        CHECK((t.status_bits & ESC_ST_CMD_TIMEOUT) != 0u);
+        CHECK(!o.enable);                                       /* fault forces gate off ... */
+        CHECK(!o.brake);                                        /* ... and no active brake */
+        CHECK((t.status_bits & ESC_ST_FAILSAFE_BRAKE) == 0u);   /* telemetry must not claim BRAKE */
+        CHECK((t.status_bits & ESC_ST_FAILSAFE_COAST) != 0u);   /* it coasted */
+    }
+
     CHECK_DONE();
 }

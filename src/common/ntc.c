@@ -11,8 +11,11 @@ float ntc_counts_to_celsius(const ntc_cfg_t *cfg, uint16_t counts)
     float c = (float)counts;
     float ratio, r_ntc, inv_t, t_c;
 
-    /* Near-rail count = open or shorted thermistor (either topology) -> fail-safe. */
-    if (c < NTC_RAIL_GUARD_COUNTS || c > (full - NTC_RAIL_GUARD_COUNTS)) {
+    /* Within NTC_RAIL_GUARD_COUNTS of either rail = open or shorted thermistor (either topology)
+     * -> fail-safe hot. Inclusive (<=/>=) so the boundary LSB also trips: on the high-side esc6288
+     * NTC a dead sensor reading exactly the guard count must fault, not pass as an extreme-cold
+     * value that would suppress the over-temp trip. */
+    if (c <= NTC_RAIL_GUARD_COUNTS || c >= (full - NTC_RAIL_GUARD_COUNTS)) {
         return cfg->open_temp_C;
     }
 
