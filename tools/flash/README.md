@@ -4,8 +4,8 @@ DSS (Debug Server Scripting) helpers driven over the XDS110 debugger, plus a hos
 DroneCAN probe. They load a `.out`, run it, poke variables, and read results back — used to
 bring up each board step-by-step against its `boards/<board>/PORT_TODO.md`.
 
-Organized **by board**, so the boards currently on hold stay quarantined and `esc6288_revA`
-has a home for its (yet-to-be-written) scripts.
+Organized **by board**, so the boards currently on hold stay quarantined and
+`esc6288_revA` remains the active bring-up target.
 
 ## Invocation
 

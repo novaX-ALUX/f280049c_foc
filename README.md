@@ -1,19 +1,81 @@
-# f280049c_foc — New ESC Project (TMS320F280049C)
+# f280049c_foc -- esc6288 FOC firmware (TMS320F280049C)
 
-Modern FOC architecture based on **C2000Ware MotorControl SDK 6.00.00.00** (driverlib + EABI).
-Replaces the legacy `../esc_drv8300_foc` (F28027F / MotorWare, end-of-life) and the interim `../motorware_clean` (F28062F, abandoned).
+Modern FOC firmware based on **C2000Ware MotorControl SDK 6.00.00.00**
+(driverlib + EABI). It replaces the legacy `../esc_drv8300_foc` F28027F /
+MotorWare code and the interim `../motorware_clean` F28062F work.
+
+## Project Focus
+
+The product target is **`esc6288_revA`**. Current software work should serve that
+board directly, or keep shared build/test gates healthy for it.
+
+The two LaunchPad boards remain in the tree because they were useful validation
+platforms and still catch portability regressions, but they are not current
+bring-up targets:
+
+- `launchxl_drv8305evm`: historical DRV8305 validation platform; on hold.
+- `launchxl_3phganinv`: historical GaN validation platform; on hold.
+
+Do not spend new feature work on those validation boards unless it fixes a
+shared regression that affects `esc6288_revA`.
 
 ## Target Platform
-- MCU: **TMS320F280049C** (F28004x, 100 MHz, FPU + **TMU**, 256 KB Flash / 100 KB RAM)
-- Software stack: **C2000Ware MotorControl SDK 6.0** + driverlib (**not MotorWare**)
-- Hardware boards: production board `esc6288_revA` uses a JSM6288T (6-input, no enable/SPI) gate driver; validation boards `launchxl_drv8305evm` (DRV8305) and `launchxl_3phganinv` (BOOSTXL-3PhGaNInv, LMG5200 GaN) (see Boards table)
-- Control: InstaSPIN **FAST sensorless** (F280049C has FAST ROM) + future **MT6701 sensored** integration
+
+- MCU: **TMS320F280049C** (F28004x, 100 MHz, FPU + **TMU**, 256 KB Flash /
+  100 KB RAM)
+- Product board: **`esc6288_revA`**, custom 12S ESC, currently at fab
+- Gate driver: **JSM6288T**, six independent inputs, no EN pin, no nFAULT pin,
+  internal anti-shoot-through interlock + dead time
+- Safe-off model: ePWM trip-zone one-shot (**OST**) is the gate-disable
+  mechanism; `HAL_enableDRV()` is a no-op on esc6288
+- Control stack: SDK FAST sensorless core plus esc6288 product glue, DroneCAN,
+  MT6701 absolute encoder path, NTC temperature protection, and host-tested pure
+  control/support modules
+
+## Current Status
+
+- `esc6288_revA` is ported from the final schematic + netlist.
+- Product application links for esc6288 (`PRODUCT=1`).
+- SDK single-motor lab regression builds (`LAB=all`, 12/12) are green for
+  esc6288.
+- Pure `src/` modules are host-tested and cross-compiled as a zero-warning gate.
+- CAN bridge/comms and product glue have dedicated cross-compile gates.
+- Bring-up scripts for non-spinning stages are written under
+  `tools/flash/esc6288_revA/` and syntax-checked. They have not run on hardware
+  yet because the board has not returned from fab.
+
+Implemented esc6288-facing software:
+
+- MT6701 SSI frame decode + CRC6, board read adapter, and feedback plumbing
+- NTC count -> degrees C conversion and live over-temperature latch
+- Speed-mode setpoint skeleton, default gated off
+- `nvparam` storage record for node-id + learned park reference, with CRC/range
+  validation and host tests
+- DroneCAN `uavcan.protocol.param.GetSet` access to those persisted fields
+- esc6288 staged bring-up DSS scripts for rails/clock, idle/OST, ADC,
+  protection, and peripherals
+
+Hardware-dependent items intentionally deferred until the prototype is on the
+bench:
+
+- Stage 4 first-spin script and any real PWM output beyond explicit OST tests
+- JSM6288T/MCU dead-time final tuning by oscilloscope
+- MT6701 SSI polarity/timing and encoder zero/dir tuning
+- Real Flash erase/program for `nvparam`
+- Speed-loop ISR consumption/tuning, auto-park enable, active brake, and flight
+  current/temperature thresholds
+
+See `boards/esc6288_revA/PORT_TODO.md` for the authoritative bench checklist.
 
 ## Selected Reference Base
-SDK reference base `solutions/boostxl_drv8320rs/f28004x` (explicit target = F280049C); only the HAL/lab structure needed for porting is retained.
-Incremental bring-up lab ladder (analogous to legacy MotorWare proj_lab01..10):
-```
-is01_intro_hal          HAL / clock / PWM bringup  ← current validation point
+
+The retained SDK reference base is
+`solutions/boostxl_drv8320rs/f28004x` (explicit target = F280049C). Only the
+HAL/lab structure needed for porting is retained. The SDK lab ladder is still
+useful as a compile regression and low-level bring-up reference:
+
+```text
+is01_intro_hal          HAL / clock / PWM bringup
 is02_offset_gain_cal    ADC offset/gain calibration
 is03_hardware_test      hardware self-test
 is04_signal_chain_test  signal chain test
@@ -22,139 +84,141 @@ is06_torque_control     torque loop
 is07_speed_control      speed loop
 ... is13_fwc_mtpa       field weakening / MTPA
 ```
-> Single-motor labs (is01–is10, is12, is13) link cleanly on all boards with 0 warnings.
-> **is11_dual_motor does not apply** (dual-motor; requires the removed `user_m1/m2/dm` + `hal_dm` scaffolding);
-> `build.sh` exits with an error if it is selected.
->
-> Control module sources needed by each lab (`vs_freq/vsf/fwc/mtpa`) are already included in `build.sh`; is12 automatically adds the `_VSF_EN_` macro.
 
-Each lab has both EABI and COFF variants — **this project uses EABI**.
+Single-motor labs (is01-is10, is12, is13) link cleanly; `is11_dual_motor` is
+out of scope and `build.sh` rejects it.
 
-## Boards (three boards, orthogonal to the control core)
-| Board (`BOARD=`) | Role | Gate driver | Current sensing | Status |
-|------|------|---------|---------|------|
-| `esc6288_revA` | Production ESC (custom, in fabrication) | JSM6288T / simple 6-input (no EN, no nFAULT, no SPI) | External shunt + op-amp | is01 builds; board-level HAL pending schematic migration into `board.h` |
-| `launchxl_drv8305evm` | **Validation platform** (TI LaunchPad + BoosterPack) | DRV8305 (SPI-programmable, integrated CSA) | DRV8305 integrated CSA → direct ADC | **Phases 1–3 complete**: is01 pins correct and building, PGA/ADC front-end correct, DRV8305 SPI driver in place; Phase 4 power-on pending hardware |
-| `launchxl_3phganinv` | **GaN validation platform** (TI LaunchPad + BOOSTXL-3PhGaNInv) | LMG5200 GaN half-bridges via SN74AVC8T245 buffer (nEn_uC active-low; no SPI) | INA240 (gain 20) on 5 mΩ in-line shunts → direct ADC | **Build complete** (LAB=all 12/12, SRC_CHECK clean); power-on + bench-verify pending (see `PORT_TODO.md`: dead-time, current sign, OT trip) |
+## Boards
 
-> Use the LaunchPad validation boards to validate firmware and motor before the custom board returns (hardware-decoupled validation).
-> All boards share the same FOC control core; only the board layer (HAL / gate driver / scaling) differs.
-> See `boards/<board>/PORT_TODO.md` for details.
+| Board (`BOARD=`) | Role now | Gate driver | Current sensing | Status |
+|---|---|---|---|---|
+| `esc6288_revA` | **Product target** | JSM6288T, 6-input, no EN/nFAULT, internal interlock + DT | 3x INA181A1 over 0.5 mohm shunts | Schematic/netlist port complete; product and lab build gates green; bench verification pending |
+| `launchxl_drv8305evm` | On-hold validation/regression board | DRV8305 SPI gate driver / integrated CSA | DRV8305 CSA to ADC | Historical bring-up notes retained; no new feature work planned |
+| `launchxl_3phganinv` | On-hold validation/regression board | LMG5200 GaN half-bridges via buffer | INA240 over 5 mohm in-line shunts | Buildable regression path; bench work paused |
 
-## Toolchain (verified on this machine)
-- Compiler: `cl2000` (TI C2000 CGT). `build.sh` auto-detects a `ti-cgt-c2000_*` install (newest under `~/ti/ccs*`, `/opt/ti`, …); override or pin with `CGT=/path/to/ti-cgt-c2000_<ver>`. Validated with 22.6.0.LTS; EABI is forward-compatible.
-- SDK: `./C2000Ware_MotorControl_SDK_6_00_00_00` (in-project, gitignored)
-- driverlib (f28004x) prebuilt: `.../c2000ware/driverlib/f28004x/driverlib/ccs/Release/driverlib_eabi.lib`
-- **ABI: EABI** (`--abi=eabi`) — modern native ABI; **no need** for the legacy `--abi=coffabi` hack used on F28062F
-- ⚠️ Always use `_eabi`-suffix library variants when linking SDK libraries (e.g., `fluxHF_eabi.lib`, `f28004x_fast_rom_symbols_fpu32_eabi.lib`);
-  linking COFF variants by mistake will cause unresolved `EST_*` symbols.
+All boards share the same FOC/control core. Board-specific HAL, gate driver,
+pinout, scaling, and safety details live under `boards/<board>/`.
 
-## Completed
-- [x] SDK 6.0 installed and F28004x support verified
-- [x] `is01_intro_hal` (RAM/EABI) command-line compile + link verified → valid c28xabi ELF image
-- [x] `build.sh` (parameterized `BOARD × MOTOR × LAB`, injects board/motor IDs and extra sources, outputs to `build/<BOARD>/<MOTOR>/<LAB>/`)
-- [x] **esc6288_revA**: gate driver converged from DRV8320 SPI template to `gate_driver.c/.h` + `board.h`; HAL GPIO safely cleaned up
-- [x] **launchxl_drv8305evm validation platform (Phases 1–3)**:
-  - Pin mapping (Site 1 / J1-J4) locked from SysConfig board file → is01 all pins correct, builds cleanly
-  - Analog front-end corrected: current ADC B2/C0/A9 (phase order A, B, C); on-chip PGA disabled (DRV8305 has integrated CSA)
-  - Scaling: 44.30 V / 47.14 A; CMPSS overcurrent mapping verified against datasheet (CMPSS3/1/6, pending hardware connection)
-  - DRV8305 SPI register driver `drv8305.c/.h` (driverlib) compiled and integrated into `HAL_enableDRV`/`HAL_setupSPIA`
-    (⚠️ stock is01 only enters the enable path under `DRV8320_SPI`; the **`DRV8305_configure()` runtime entry point must be hooked into the lab during bring-up**)
+## Toolchain
 
-## To Do (bring-up sequence)
-**Near-term (validation platform `launchxl_drv8305evm`, Phase 4 = power-on, requires hardware)**
-1. Import project into CCS Theia; use SysConfig to generate CMPSS overcurrent configuration for DRV8305EVM (see `boards/launchxl_drv8305evm/PORT_TODO.md`)
-2. DRV8305 SPI smoke test (read status/ID, confirm 6-PWM mode, oscilloscope timing verification)
-3. ADC calibration (is02) → hardware self-test (is03, start with low voltage / low current) → motor identification (is05) → torque/speed loops (is06/07)
+- Compiler: `cl2000` from TI C2000 CGT. `build.sh` prefers the validated
+  `ti-cgt-c2000_22.6.0.LTS` and can be pinned with `CGT=/path/to/ti-cgt-c2000_<ver>`.
+- SDK: `C2000Ware_MotorControl_SDK_6_00_00_00`; either place it in the project
+  root or set `MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00`.
+- ABI: **EABI** (`--abi=eabi`). Use `_eabi` SDK library variants such as
+  `fluxHF_eabi.lib` and `f28004x_fast_rom_symbols_fpu32_eabi.lib`.
 
-**Production board (`esc6288_revA`, once custom board returns)**
-4. Board-level HAL porting: migrate GPIO/ADC/EPWM/CMPSS assignments from schematic into `boards/esc6288_revA/drivers/include/board.h`
-5. Integrate **MT6701 encoder** (sensored FOC; reference SDK `absolute_encoder_boostxl_posmgr` / `servo_drive_with_can/sensored_foc`)
-6. Integrate **CAN / DroneCAN** (reference `servo_drive_with_can`)
+## Getting Started
 
-**Future product features (backlog — not scheduled, most need the real board + bench)**
-- **CAN DFU** (firmware update over CAN): a bootloader + update protocol so the application can be
-  reflashed over the bus. Plan: DroneCAN `uavcan.protocol.file.*` (Read) pull driven by
-  `BeginFirmwareUpdate` + `RestartNode` into a flash bootloader. Depends on the real Flash
-  erase/program path (currently deferred; see `boards/esc6288_revA/PORT_TODO.md`).
-- **CAN OTA** (over-the-air update): the delivery side of the above — push a new image to the node
-  over CAN (DroneCAN file transfer from the GCS/companion), then hand off to the DFU bootloader.
-- **Power-on startup chime**: when power is connected, play an ascending **Do–Mi–Sol** (C–E–G major
-  triad arpeggio) through the motor windings as an audible "ready" cue, by driving the PWM at each
-  note frequency briefly before arming (no rotation). Tune note freq/duration/amplitude on the
-  bench; must stay within the safe-off → arm sequence (no torque/spin).
+Install the TI compiler and MotorControl SDK, then run the esc6288 gates:
 
-## Getting Started (first clone)
-The vendor SDK and the TI compiler are **not** in the repo (gitignored / licensed). After cloning,
-set up two external dependencies, then build to verify:
-
-1. **TI C2000 compiler (CGT).** Install Code Composer Studio (which bundles `ti-cgt-c2000`) or the
-   standalone CGT. `build.sh` auto-detects the newest `ti-cgt-c2000_*` under `~/ti/ccs*`, `~/ti`,
-   `/opt/ti`. If it lives elsewhere, point to it:
-   ```bash
-   export CGT=/path/to/ti-cgt-c2000_<ver>      # e.g. .../ti-cgt-c2000_22.6.0.LTS to pin the validated version
-   ```
-
-2. **MotorControl SDK 6.00.00.00.** Download `C2000Ware_MotorControl_SDK_6_00_00_00` from TI and either
-   place it in the project root (the default location, gitignored) or point to it:
-   ```bash
-   export MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00
-   ```
-
-3. **Verify the build** (no hardware needed — command-line compile + link only):
-   ```bash
-   bash build.sh                                  # default board/motor/lab, should print ">>> DONE: ...is01_intro_hal.out"
-   BOARD=launchxl_drv8305evm LAB=all bash build.sh # regression: all single-motor labs, expect "12 passed, 0 failed"
-   ```
-
-Host: Linux with `bash` (the build is a shell script; toolchain paths assume a Unix layout).
-Outputs go to `build/<BOARD>/<MOTOR>/<LAB>/` (gitignored).
-
-## Build
 ```bash
-bash build.sh                                           # default: esc6288_revA / is01
-BOARD=esc6288_revA        LAB=is01_intro_hal bash build.sh
-BOARD=launchxl_drv8305evm LAB=is01_intro_hal bash build.sh   # validation platform (DRV8305_SPI auto-enabled)
-BOARD=launchxl_drv8305evm LAB=all            bash build.sh   # smoke test: build all single-motor labs + summary (regression)
-BOARD=launchxl_drv8305evm MOTOR=am_6215 LAB=is05_motor_id bash build.sh   # select motor profile
+bash tools/test/run.sh
+BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1     bash build.sh
+BOARD=esc6288_revA                   CAN_CHECK=1     bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT_CHECK=1 bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1       bash build.sh
+BOARD=esc6288_revA LAB=all bash build.sh
+```
+
+The default build is still a quick SDK lab build:
+
+```bash
+bash build.sh   # BOARD=esc6288_revA LAB=is01_intro_hal MOTOR=motor_template
+```
+
+Outputs go to `build/<BOARD>/<MOTOR>/<LAB>/` or, for the product image, the
+product subdirectory under `build/<BOARD>/<MOTOR>/`.
+
+## Build Knobs
+
+```bash
+BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
+NODE_ID=25 ESC_INDEX=0 BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
+EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
 MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 ```
-- `BOARD` → `build.sh` injects `-DBUILD_BOARD_ID`; each `board.h` self-checks to prevent board/build mismatch.
-- `MOTOR` (default `motor_template`) → injects `-DBUILD_MOTOR_ID`, selects `motors/<model>.h`;
-  when not template, board user.h skips the SDK example motor chain and uses the profile instead. Options:
-  `motor_template / am_4116_kva / am_4116_kvb / am_6212 / am_6215`.
-- `launchxl_drv8305evm` automatically appends `drv8305.c` and `--define=DRV8305_SPI`.
 
-## Hardware Safety State
-- All boards: `HAL_setupGPIOs()` brings up the gate stage in its *disabled* state by default; power-on testing requires explicit `HAL_enableDRV()` in the lab entry. The enable mechanism differs per board:
-  - `esc6288_revA` (JSM6288T): **no gate-enable pin and no nFAULT pin** — safe-off is the ePWM trip-zone (OST), held until `HAL_enablePWM()`; `HAL_enableDRV()` is a no-op.
-  - `launchxl_drv8305evm` (DRV8305): active-high EN_GATE on GPIO39, held **low** (disabled) until `HAL_enableDRV()`.
-  - `launchxl_3phganinv` (LMG5200): active-low nEn_uC (buffer OE) on GPIO39, held **high** (disabled) until `HAL_enableDRV()` drives it low.
-- **launchxl_3phganinv**: LMG5200 GaN half-bridges have **no internal dead-time** — the MCU dead-band (`HAL_PWM_DBRED_CNT`/`DBFED_CNT` in `hal.h`, ~200 ns) is the only shoot-through protection; verify on a scope before raising bus voltage.
-- **esc6288_revA**: JSM6288T is a simple 6-input driver with no enable and no nFAULT — GPIO13 is not connected (input), `HAL_enableDRV()` is a no-op, and the gate stage is held off by the ePWM trip-zone (OST) until `HAL_enablePWM()`.
-- **launchxl_drv8305evm**: EN_GATE=GPIO39 (low/off), nFAULT=GPIO13 (input); `HAL_enableDRV()` wakes and configures DRV8305.
-  ⚠️ **Overcurrent protection (CMPSS) is not yet wired** (mapping verified; pending SysConfig generation) — must be connected before high-current operation (is05+); low-voltage low-current calibration/self-test can proceed first.
+- `BOARD` selects the board HAL and injects `BUILD_BOARD_ID`; each `board.h`
+  self-checks the ID.
+- `MOTOR` selects `motors/<model>.h` and injects `BUILD_MOTOR_ID`. Options:
+  `motor_template`, `am_4116_kva`, `am_4116_kvb`, `am_6212`, `am_6215`.
+- `PRODUCT=1` links `product/product_main.c` instead of an SDK lab.
+- `NODE_ID=0` means DroneCAN dynamic node allocation; `1..127` is a static node id.
+- `ESC_INDEX=0..19` selects the RawCommand array index.
+- `PWM_PHASE_ORDER=auto|0..5` defaults to each board's configured order.
+- `EXTRA_DEFINES` appends compiler defines verbatim for explicitly gated build
+  switches.
 
-## Reference Blueprint (logic/parameters reference only — no code reuse)
-- `../esc_drv8300_foc`: motor parameters, MT6701 driver logic, DroneCAN stack, control experience
+## esc6288 Hardware Safety Model
 
-## Directory Structure (layered by axis of change)
+On `esc6288_revA`, there is no physical gate-enable pin. The safe state is:
+
+- EPWM1/2/3 trip-zone OST forced/set
+- `flagRunIdentAndOnLine == 0` (not armed)
+- no code path clears OST except the explicit arm path
+
+`HAL_setupFaults()` leaves the outputs OST-forced. Offset calibration keeps the
+gates tripped so ADC offsets sample with the bridge off. The stage scripts assert
+this invariant before doing any read/check, and any script path that can un-trip
+the EPWM requires an explicit argument and returns to safe-off on exit.
+
+The JSM6288T has its own internal interlock and dead time. The MCU dead-band is
+therefore extra margin, currently set to 20 counts (~200 ns) and left for bench
+scope validation before any flight value is trusted.
+
+## Bring-Up Scripts
+
+esc6288 scripts live in `tools/flash/esc6288_revA/`:
+
+```bash
+dss.sh tools/flash/esc6288_revA/s1_rails_clock.js tools/flash/common/f280049c_xds110.ccxml <product.out>
+dss.sh tools/flash/esc6288_revA/s2_idle_ost.js    tools/flash/common/f280049c_xds110.ccxml <product.out> [verify=offcal|verify=untrip]
+dss.sh tools/flash/esc6288_revA/s3_adc_offsets.js tools/flash/common/f280049c_xds110.ccxml <product.out>
+dss.sh tools/flash/esc6288_revA/s5_protection.js  tools/flash/common/f280049c_xds110.ccxml <product.out> [force=tz|inject=oc|inject=ov]
+dss.sh tools/flash/esc6288_revA/s6_peripherals.js tools/flash/common/f280049c_xds110.ccxml <product.out>
 ```
+
+Run them in order when the prototype returns. Stage 4 (first spin) is
+deliberately not scripted yet; write it only after stages 1/2/3/5/6 have passed
+on real hardware and the oscilloscope conditions are clear.
+
+## Future Product Backlog
+
+- Flash persistence: decode the stored `nvparam` record at boot and write it via
+  driverlib Flash erase/program when node-id or park-ref changes.
+- DroneCAN restart/parameter polish: `RestartNode` and any richer parameter UX
+  needed after bench interop with ArduPilot/yakut.
+- CAN DFU/OTA: bootloader plus DroneCAN file-transfer/update flow.
+- Power-on startup chime: bench-tuned motor-winding tones before arming, if it
+  remains desirable after the safety sequence is proven.
+
+## Reference Blueprint
+
+`../esc_drv8300_foc` remains a logic/parameter reference only: motor parameters,
+MT6701 experience, DroneCAN behavior, and control lessons. Do not reuse legacy
+MotorWare code directly in this project.
+
+## Directory Structure
+
+```text
 f280049c_foc/
-├── C2000Ware_MotorControl_SDK_6_00_00_00/  # vendor SDK, referenced only, not modified (gitignore)
-├── docs/                                    # local reference materials: TRM/datasheet/errata/SDK lab guide
-├── boards/                                  # axis 1: hardware (MOSFETs / gate driver / shunt / layout)
-│   ├── esc6288_revA/             # production ESC (JSM6288T, custom, in fabrication): board.h/hal.c/gate_driver.c/cmd/PORT_TODO.md
-│   ├── launchxl_drv8305evm/      # validation platform (DRV8305EVM): same + drv8305.c/.h (SPI driver)
-│   └── launchxl_3phganinv/       # GaN validation platform (BOOSTXL-3PhGaNInv, LMG5200): same, no SPI; active-low enable
-├── config/build_config.h                    # board/motor ID selection (BUILD_BOARD_ID / BUILD_MOTOR_ID)
-├── build.sh                                 # BOARD=.. MOTOR=.. LAB=.. bash build.sh
-├── motors/                                  # axis 2 (integrated): one profile per motor + motor_select.h
-│   # am_4116_kva/kvb, am_6212, am_6215, motor_template, motor_select.h
-└── src/{app,comms,encoder,common}/         # axis 3 (planned): core logic, hardware/motor-agnostic (empty placeholders)
+├── C2000Ware_MotorControl_SDK_6_00_00_00/  # vendor SDK, gitignored
+├── docs/                                    # local datasheets / errata / SDK notes
+├── boards/
+│   ├── esc6288_revA/                        # product board HAL, drivers, linker, PORT_TODO
+│   ├── launchxl_drv8305evm/                 # on-hold validation board
+│   └── launchxl_3phganinv/                  # on-hold validation board
+├── config/                                  # BUILD_BOARD_ID / BUILD_MOTOR_ID selection
+├── motors/                                  # motor profiles
+├── product/                                 # esc6288 product main
+├── src/
+│   ├── app/                                 # pure control glue, park/ref, nvparam
+│   ├── comms/                               # pure DroneCAN protocol layers
+│   ├── common/                              # shared DTOs, NTC conversion
+│   └── encoder/                             # MT6701 pure decode/tracking
+├── tools/flash/                             # DSS bench scripts and CAN host probes
+├── tools/test/                              # host tests and generated goldens
+└── build.sh                                 # BOARD=.. MOTOR=.. LAB=.. PRODUCT=..
 ```
-- Swap board/MOSFETs → add `boards/<new>`; swap motor → add `motors/<new>` + register ID in build_config.h/build.sh; `src/` untouched.
-- **motors/ is integrated into the build**: `MOTOR=<model>` selects the profile; board user.h skips the SDK example motor chain in favor of it.
-  All 4 profiles currently have bench-seed Rs/Ls/flux values (compile and run is05); update with measured values after identification (pole pairs filled from geometry).
-- ⚠️ `src/` is still an empty placeholder — to be populated after is06/07 is running.
-- Bring-up: `BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh`
