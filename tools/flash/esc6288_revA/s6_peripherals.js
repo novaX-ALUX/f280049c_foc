@@ -19,8 +19,13 @@ importPackage(Packages.com.ti.ccstudio.scripting.environment);
 importPackage(Packages.java.lang);
 function p(s){ System.out.println(s); }
 function num(nm){ try { return Number(e.evaluate(nm)); } catch(err){ return NaN; } }
+function set(nm,v){ try { e.evaluate(nm+"="+v); return true; } catch(err){ return false; } }
 function f(x,n){ return (isNaN(x)?"nan":x.toFixed(n)); }
 function rd32(a){ var w=s.memory.readData(Memory.Page.DATA,a,16,2,false); return ((w[1]&0xFFFF)<<16)|(w[0]&0xFFFF); }
+// emergency safe-off (used on any failure exit): force OST + de-arm (halting the CPU does not stop EPWM).
+function forceSafeOff(){ try { s.memory.writeData(Memory.Page.DATA,0x409B,0x4,16);
+    s.memory.writeData(Memory.Page.DATA,0x419B,0x4,16); s.memory.writeData(Memory.Page.DATA,0x429B,0x4,16);
+    } catch(x){} set("motorVars.flagRunIdentAndOnLine",0); set("motorVars.flagEnableSys",0); }
 function getf(nm){ try { var a=Number(e.evaluate("&"+nm));
     var w=s.memory.readData(Memory.Page.DATA,a,16,2,false);
     return java.lang.Float.intBitsToFloat(((w[1]&0xFFFF)<<16)|(w[0]&0xFFFF)); } catch(err){ return NaN; } }
@@ -37,6 +42,7 @@ s.target.connect(); s.memory.loadProgram(out);
 var e=s.expression;
 
 function bail(why){ p(""); p("!!!!!! STAGE 6 (peripherals) FAILED: " + why);
+    forceSafeOff(); p("  -> safe-off: OST forced, de-armed, flagEnableSys=0.");
     try { s.target.halt(); s.target.disconnect(); } catch(x){} server.stop(); s.terminate();
     java.lang.System.exit(1); }
 
@@ -57,8 +63,11 @@ function snap(tag){
 }
 
 p(""); p("======== esc6288 STAGE 6: CAN / encoder / RC-PWM / RGB (read-only) ========");
-if(num("halHandle")>0){} // load already done; run to populate live state
+// product.out self-enables and runs disarmed (gates held off by OST); run it so CAN/encoder/eCAP
+// state is live, then sample. Read-only -- never touches the power stage.
 s.target.runAsynch(); Thread.sleep(1500); s.target.halt();
+if(!(num("halHandle")>0)) bail("halHandle invalid -- run stage 1 first.");
+if(num("motorVars.flagRunIdentAndOnLine")!=0) bail("unexpectedly ARMED -- abort.");
 snap("sample 1");
 p("  (now: send a DroneCAN frame / rotate the magnet / feed an RC pulse to see the values move)");
 s.target.runAsynch(); Thread.sleep(1500); s.target.halt();

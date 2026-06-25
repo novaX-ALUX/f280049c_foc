@@ -11,12 +11,14 @@ prints explicit pass / stop conditions so bring-up is "follow the steps", not "i
 
 1. **Default mode is observe/check** — it never un-trips the EPWM, never drives PWM, never spins.
 2. Any action that releases the trip-zone or could output pulses is behind an **explicit arg**,
-   and the script **unconditionally returns to safe-off on exit** (forces OST + `flagEnableSys=0`),
-   including on every error/abort path.
+   and the script **unconditionally returns to safe-off on exit** (forces OST, de-arms
+   `flagRunIdentAndOnLine=0`, sets `flagEnableSys=0`), including on every error/abort path.
 
 esc6288 has **no gate-enable pin** (JSM6288T): safe-off *is* the EPWM trip-zone one-shot (OST).
-"Safe" therefore means `TZFLG.OST` set on EPWM1/2/3 (outputs forced low). Run every stage at
-**zero bus voltage** first.
+The target is the **product image** (`product.out`), which self-sets `flagEnableSys=true` and runs
+the offset cal automatically — so the safe invariant is **`TZFLG.OST` set on EPWM1/2/3 AND not
+armed (`flagRunIdentAndOnLine==0`)**, not `flagEnableSys==0`. Run every stage at **zero bus
+voltage** first.
 
 ## Stages
 
@@ -28,7 +30,7 @@ esc6288 has **no gate-enable pin** (JSM6288T): safe-off *is* the EPWM trip-zone 
 | 5 | `s5_protection.js` | protection | CMPSS3/CMPSS5 latches + OST baseline; `force=tz`; `inject=oc`/`inject=ov` (manual inject, read-back) | only with arg |
 | 6 | `s6_peripherals.js` | CAN/enc/RC-PWM/RGB | CAN FIFO, MT6701 `g_enc`, RC-PWM eCAP, RGB note | none |
 
-Invoke (shared ccxml + the product `.out`; stage 1 also works on `is01_intro_hal.out`):
+Invoke (shared ccxml + the product `.out`):
 
 ```bash
 dss.sh tools/flash/esc6288_revA/s1_rails_clock.js tools/flash/common/f280049c_xds110.ccxml <product.out>

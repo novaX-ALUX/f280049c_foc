@@ -24,6 +24,7 @@ importPackage(Packages.com.ti.ccstudio.scripting.environment);
 importPackage(Packages.java.lang);
 function p(s){ System.out.println(s); }
 function num(nm){ try { return Number(e.evaluate(nm)); } catch(err){ return NaN; } }
+function set(nm,v){ try { e.evaluate(nm+"="+v); return true; } catch(err){ return false; } }
 function rd(a){ return s.memory.readData(Memory.Page.DATA,a,16,1,false)[0]&0xFFFF; }
 function wr(a,v){ try { s.memory.writeData(Memory.Page.DATA,a,v,16); } catch(x){} }
 
@@ -47,15 +48,17 @@ var s=server.openSession("*","C28xx_CPU1");
 s.target.connect(); s.memory.loadProgram(out);
 var e=s.expression;
 
-function safeExit(code){ forceOST();   // leave gates tripped on every path
-    p("  -> safe-off: OST forced (" + ostStr() + ").");
+function safeExit(code){ forceOST(); set("motorVars.flagRunIdentAndOnLine",0); set("motorVars.flagEnableSys",0);
+    p("  -> safe-off: OST forced (" + ostStr() + "), flagRunIdentAndOnLine=0, flagEnableSys=0.");
     try { s.target.halt(); s.target.disconnect(); } catch(x){} server.stop(); s.terminate();
     java.lang.System.exit(code); }
 function bail(why){ p(""); p("!!!!!! STAGE 5 (protection) FAILED: " + why); safeExit(1); }
 
 p(""); p("======== esc6288 STAGE 5: protection / trip paths  [mode=" + MODE + "] ========");
-s.target.runAsynch(); Thread.sleep(1200); s.target.halt();
+// product.out self-enables (flagEnableSys=1) and runs disarmed; gates stay held off by OST.
+s.target.runAsynch(); Thread.sleep(1500); s.target.halt();
 if(!(num("halHandle")>0)) bail("halHandle invalid -- run stage 1 first.");
+if(num("motorVars.flagRunIdentAndOnLine")!=0) bail("unexpectedly ARMED (flagRunIdentAndOnLine!=0) -- abort.");
 
 function report(tag){
     p("--- " + tag + " ---");
@@ -65,7 +68,7 @@ function report(tag){
     p("  faultNow.all=" + num("motorVars.faultNow.all") + "  faultUse.all=" + num("motorVars.faultUse.all") +
       "  moduleOverCurrent=" + num("motorVars.faultNow.bit.moduleOverCurrent"));
 }
-report("baseline (at dead-wait)");
+report("baseline (startup, disarmed)");
 
 if(MODE=="observe"){
     p(""); p(">>> STAGE 5 OK (observe): protection latch/flag baseline read. Nothing forced.");

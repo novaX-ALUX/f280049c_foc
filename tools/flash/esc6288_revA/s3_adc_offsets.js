@@ -19,8 +19,13 @@ importPackage(Packages.com.ti.ccstudio.scripting.environment);
 importPackage(Packages.java.lang);
 function p(s){ System.out.println(s); }
 function num(nm){ try { return Number(e.evaluate(nm)); } catch(err){ return NaN; } }
+function set(nm,v){ try { e.evaluate(nm+"="+v); return true; } catch(err){ return false; } }
 function f(x,n){ return (isNaN(x)?"nan":x.toFixed(n)); }
 function rd(a){ return s.memory.readData(Memory.Page.DATA,a,16,1,false)[0]&0xFFFF; }
+// emergency safe-off (used on any failure exit): force OST + de-arm (halting the CPU does not stop EPWM).
+function forceSafeOff(){ try { s.memory.writeData(Memory.Page.DATA,0x409B,0x4,16);
+    s.memory.writeData(Memory.Page.DATA,0x419B,0x4,16); s.memory.writeData(Memory.Page.DATA,0x429B,0x4,16);
+    } catch(x){} set("motorVars.flagRunIdentAndOnLine",0); set("motorVars.flagEnableSys",0); }
 function getf(nm){ try { var a=Number(e.evaluate("&"+nm));
     var w=s.memory.readData(Memory.Page.DATA,a,16,2,false);
     return java.lang.Float.intBitsToFloat(((w[1]&0xFFFF)<<16)|(w[0]&0xFFFF)); } catch(err){ return NaN; } }
@@ -42,14 +47,18 @@ s.target.connect(); s.memory.loadProgram(out);
 var e=s.expression;
 
 function bail(why){ p(""); p("!!!!!! STAGE 3 (ADC) FAILED: " + why);
+    forceSafeOff(); p("  -> safe-off: OST forced, de-armed, flagEnableSys=0.");
     try { s.target.halt(); s.target.disconnect(); } catch(x){} server.stop(); s.terminate();
     java.lang.System.exit(1); }
 
 p(""); p("======== esc6288 STAGE 3: ADC offsets / front-end (observe-only) ========");
 
-// run to dead-wait + let the EPWM/ADC settle so SOC results are live.
-s.target.runAsynch(); Thread.sleep(1200); s.target.halt();
+// run startup + let the EPWM/ADC settle so SOC results are live. product.out self-enables and
+// runs disarmed (gates held off by OST); the EPWM time-base triggers SOCA regardless, so the ADC
+// reads are live. This stage is observe-only and never touches the power stage.
+s.target.runAsynch(); Thread.sleep(1500); s.target.halt();
 if(!(num("halHandle")>0)) bail("halHandle invalid -- run stage 1 first.");
+if(num("motorVars.flagRunIdentAndOnLine")!=0) bail("unexpectedly ARMED -- abort before reading.");
 
 // raw zero-current counts (mid-rail ~2048). EPWM SOCA triggers even while tripped.
 var ia=rd(0x0B20), ib=rd(0x0B00), ic=rd(0x0B40), udc=rd(0x0B01), ntc=rd(0x0B42);

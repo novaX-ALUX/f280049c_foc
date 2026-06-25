@@ -10,14 +10,23 @@
  * SAFETY: pure observe. Never enables the system, never un-trips the EPWM, never drives PWM. The
  * power stage stays held off by the trip-zone (OST) the whole time. Run with NO bus voltage first.
  *
- * Usage: dss.sh tools/flash/esc6288_revA/s1_rails_clock.js <ccxml> <product.out|is01_intro_hal.out>
+ * Target: the product image (product.out) -- the clock check uses g_now_ms, which is a product
+ * symbol (the 1 ms tick counter), so this does not work against the bare SDK is01 lab.
+ *
+ * Usage: dss.sh tools/flash/esc6288_revA/s1_rails_clock.js <ccxml> <product.out>
  */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);
 importPackage(Packages.java.lang);
 function p(s){ System.out.println(s); }
 function num(nm){ try { return Number(e.evaluate(nm)); } catch(err){ return NaN; } }
+function set(nm,v){ try { e.evaluate(nm+"="+v); return true; } catch(err){ return false; } }
 function f(x,n){ return (isNaN(x)?"nan":x.toFixed(n)); }
+// emergency safe-off (used on any failure exit): force the trip-zone OST + de-arm. Halting the CPU
+// alone does NOT stop the EPWM peripheral, so a failure path must force the gates off itself.
+function forceSafeOff(){ try { s.memory.writeData(Memory.Page.DATA,0x409B,0x4,16);
+    s.memory.writeData(Memory.Page.DATA,0x419B,0x4,16); s.memory.writeData(Memory.Page.DATA,0x429B,0x4,16);
+    } catch(x){} set("motorVars.flagRunIdentAndOnLine",0); set("motorVars.flagEnableSys",0); }
 
 var ccxml=arguments[0], out=arguments[1];
 var WALL_MS = 1000;   // host-timed window for the tick-rate measurement
@@ -30,17 +39,20 @@ var e=s.expression;
 
 function bail(why){
     p(""); p("!!!!!! STAGE 1 (rails/clock) FAILED: " + why);
+    forceSafeOff(); p("  -> safe-off: OST forced, de-armed, flagEnableSys=0.");
     try { s.target.halt(); s.target.disconnect(); } catch(x){} server.stop(); s.terminate();
     java.lang.System.exit(1);
 }
 
 p(""); p("======== esc6288 STAGE 1: rails + clock (observe-only) ========");
 
-// 1) run init to the dead-wait; HAL must have come up.
+// 1) run startup; HAL must have come up. product.out self-enables (flagEnableSys=1) and runs
+//    disarmed -- gates stay held off by the trip-zone (OST); this stage never touches the power stage.
 s.target.runAsynch(); Thread.sleep(1200); s.target.halt();
-var hh=num("halHandle"), es=num("motorVars.flagEnableSys");
-p("HAL: halHandle=" + hh + " (expect nonzero)   flagEnableSys=" + es + " (expect 0 = parked)");
+var hh=num("halHandle"), es=num("motorVars.flagEnableSys"), armed=num("motorVars.flagRunIdentAndOnLine");
+p("HAL: halHandle=" + hh + " (expect nonzero)   flagEnableSys=" + es + " (1 by design)   armed=" + armed + " (expect 0)");
 if(!(hh>0)) bail("halHandle invalid -- HAL_init did not complete (rails/clock or boot problem).");
+if(armed!==0) bail("flagRunIdentAndOnLine set with no run command -- unexpected self-arm. ABORT.");
 
 // 2) clock check: tick rate vs host wall-clock. g_now_ms increments in the 1 ms ISR, which is
 //    derived from SYSCLK; the ratio exposes a wrong SYSCLK without needing a scope.
