@@ -35,6 +35,11 @@ void MT6701_SSI_init(void)
     SPI_setConfig(BOARD_ENC_SPI_BASE, DEVICE_LSPCLK_FREQ, SPI_PROT_POL1PHA0,
                   SPI_MODE_MASTER, MT6701_SSI_BITRATE_HZ, 16U);
 
+    /* The shared HAL_setupSPIA() leaves the SPIA FIFOs enabled, but MT6701_SSI_read() uses
+     * non-FIFO polling transactions (SPI_transmit16Bits), which driverlib documents must NOT
+     * be used in FIFO mode. The encoder owns SPIA exclusively here, so disable the FIFOs. */
+    SPI_disableFIFO(BOARD_ENC_SPI_BASE);
+
     SPI_disableLoopback(BOARD_ENC_SPI_BASE);
     SPI_setEmulationMode(BOARD_ENC_SPI_BASE, SPI_EMULATION_FREE_RUN);
 
