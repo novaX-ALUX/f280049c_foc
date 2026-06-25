@@ -72,6 +72,18 @@ Each lab has both EABI and COFF variants — **this project uses EABI**.
 5. Integrate **MT6701 encoder** (sensored FOC; reference SDK `absolute_encoder_boostxl_posmgr` / `servo_drive_with_can/sensored_foc`)
 6. Integrate **CAN / DroneCAN** (reference `servo_drive_with_can`)
 
+**Future product features (backlog — not scheduled, most need the real board + bench)**
+- **CAN DFU** (firmware update over CAN): a bootloader + update protocol so the application can be
+  reflashed over the bus. Plan: DroneCAN `uavcan.protocol.file.*` (Read) pull driven by
+  `BeginFirmwareUpdate` + `RestartNode` into a flash bootloader. Depends on the real Flash
+  erase/program path (currently deferred; see `boards/esc6288_revA/PORT_TODO.md`).
+- **CAN OTA** (over-the-air update): the delivery side of the above — push a new image to the node
+  over CAN (DroneCAN file transfer from the GCS/companion), then hand off to the DFU bootloader.
+- **Power-on startup chime**: when power is connected, play an ascending **Do–Mi–Sol** (C–E–G major
+  triad arpeggio) through the motor windings as an audible "ready" cue, by driving the PWM at each
+  note frequency briefly before arming (no rotation). Tune note freq/duration/amplitude on the
+  bench; must stay within the safe-off → arm sequence (no torque/spin).
+
 ## Getting Started (first clone)
 The vendor SDK and the TI compiler are **not** in the repo (gitignored / licensed). After cloning,
 set up two external dependencies, then build to verify:
