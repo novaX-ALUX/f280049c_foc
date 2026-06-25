@@ -83,7 +83,9 @@ if(MODE=="observe"){
     forceOST();
     report("after TZFRC");
     if(!ostAllSet()) bail("OST did not set after TZFRC -- trip path not forcing outputs low (or no EALLOW access; verify on bench).");
-    p(">>> software trip-zone forces all PWM outputs low (safe-off path verified).");
+    p(">>> TZFRC OST set: all phases tripped (" + ostStr() + "). NOTE: on an already-tripped baseline this");
+    p("    is an idempotent force, not a clear->set transition -- the true un-trip/re-trip transition test");
+    p("    is s2_idle_ost.js verify=untrip.");
     safeExit(0);
 } else {
     // manual injection + read-only confirm. The script does NOT create the condition.
