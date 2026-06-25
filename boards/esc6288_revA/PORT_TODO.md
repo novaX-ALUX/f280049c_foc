@@ -14,7 +14,7 @@ header comment in `drivers/include/board.h`.
 - **Clock**: 10 MHz resonator → `SYSCTL_IMULT(20)` → 100 MHz; both clock asserts use a
   board-local 10 MHz osc const (`hal.c`). *If SYSCLK were wrong everything downstream is 2× off.*
 - **PWM**: phase A=EPWM1 (GPIO0/1), B=EPWM2 (GPIO2/3), C=EPWM3 (GPIO4/5); `PWM_PHASE_ORDER`
-  default 0=ABC. Dead-band 50 cnt (~500 ns) — extra margin ON TOP of the JSM6288T's own
+  default 0=ABC. Dead-band 20 cnt (~200 ns) — extra margin ON TOP of the JSM6288T's own
   built-in ~200 ns anti-shoot-through dead time + interlock (datasheet); see the bench item.
 - **Current**: `USER_ADC_FULL_SCALE_CURRENT_A = 330` (±165 A), offsets −165 A; PGAs disabled
   (external INA path). IA=ADCINB15, IB=ADCINA1, IC=ADCINC2 (distinct cores).
@@ -53,11 +53,14 @@ header comment in `drivers/include/board.h`.
   driver that DOES have built-in anti-shoot-through protection: an interlock (HIN=LIN=H → both
   outputs off, truth table p.8 / functional block "DeadTime & Control Logic") AND a ~200 ns
   internal dead time (DT min 100 / typ 200 / max 300 ns, p.5; waveform fig. 6-3). ton/toff
-  ~120-250 ns. The MCU 500 ns dead-band (`HAL_PWM_DBRED_CNT/DBFED_CNT`, `hal.h`) is therefore
-  EXTRA conservative margin, not the sole protection. [BENCH] scope the half-bridge Vds / gate
-  waveforms and tune the MCU dead-band DOWN — the chip's ~200 ns is a floor, but the real
-  non-overlap at the FET also depends on propagation/rise/fall, Qg/Coss and layout ringing, so
-  verify on the scope rather than trusting the additive number (do not assume 0 is safe).
+  ~120-250 ns. The MCU dead-band (`HAL_PWM_DBRED_CNT/DBFED_CNT`, `hal.h`) is therefore EXTRA
+  margin, not the sole protection; it was lowered from 500 ns to **200 ns (20 counts)** since at
+  40 kHz (25 µs period) 500 ns wasted ~2% of the period and the chip already covers shoot-through.
+  [BENCH] scope the half-bridge Vds / gate waveforms at full bus + load + hot, then probe the MCU
+  dead-band down 20 → 10 (200 → 100 ns) — but do NOT ship 10 as the flight value without that
+  verification: the chip's DT floor is only ~100 ns worst-case and real FET non-overlap also
+  depends on propagation/rise/fall, Qg/Coss and layout ringing, so trust the scope, not the
+  additive number (and do not assume 0 is safe).
 - **FET NVMFS5C612NL Vds rating** — this is the hard OV ceiling. Confirm the 12S OV
   (`HAL_BUS_OV_CMPSS_DACH` ≈ 56 V, and product `vbus_ov_set = 54`) sits safely below it.
 - **OC thresholds** — product `oc_set_A = 30` and `ESC6288_ISR_OC_A = 60` are conservative

@@ -153,16 +153,20 @@ extern "C" {
                                 | EPWM_DC_COMBINATIONAL_TRIPIN9
 #endif
 
-//! \brief PWM dead-band delay counts (TBCLK = 100 MHz -> 10 ns/count).
+//! \brief PWM dead-band delay counts (TBCLK = 100 MHz -> 10 ns/count; PWM 40 kHz -> 25 us period).
 //! The JSM6288T (6-input independent driver) DOES insert its own anti-shoot-through dead time
-//! (~200 ns typ) plus an interlock (HIN=LIN=H -> both outputs off), per datasheet. This MCU
-//! dead-band ADDS to the chip's ~200 ns as extra conservative bring-up margin -- it is NOT the
-//! sole protection. 50 counts = 500 ns; scope Vds and tune DOWN on the bench (the chip's ~200 ns
-//! is a floor, but real FET non-overlap also depends on tprop/rise/fall, Qg/Coss, ringing).
-#define HAL_PWM_DBFED_CNT         50    // ~500 ns falling-edge dead time
+//! (DT min/typ/max = 100/200/300 ns) plus an interlock (HIN=LIN=H -> both outputs off), per
+//! datasheet. This MCU dead-band ADDS extra margin on top of the chip's DT -- it is NOT the sole
+//! protection. But the chip's DT floor is only ~100 ns worst-case and FET turn-off is slower at
+//! full bus / hot / high current, so keep meaningful MCU margin. 20 counts = 200 ns is the
+//! conservative pre-board default (was 500 ns, which at 40 kHz wasted ~2% of the period). On the
+//! bench scope Vds (full bus + load + hot) and probe down 20 -> 10; do NOT ship 10 (100 ns) as
+//! the flight value without that verification (real non-overlap also depends on tprop/rise/fall,
+//! Qg/Coss, ringing -- not just the additive number).
+#define HAL_PWM_DBFED_CNT         20    // ~200 ns falling-edge dead time (chip adds its own DT)
 
 //! \brief see HAL_PWM_DBFED_CNT
-#define HAL_PWM_DBRED_CNT         50    // ~500 ns rising-edge dead time
+#define HAL_PWM_DBRED_CNT         20    // ~200 ns rising-edge dead time
 
 //! \brief Defines the PWM deadband rising edge delay count (system clocks)
 //!
