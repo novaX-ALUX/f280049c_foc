@@ -72,6 +72,19 @@ speed — see `boards/launchxl_3phganinv/PORT_TODO.md`. Run in order:
 
 ## esc6288_revA/ — ESC6288 rev A (JSM6288T, no EN / no nFAULT)
 
-Primary target. Empty until the prototype returns from fab; bench scripts go here, mirroring
-the 6-step order in `boards/esc6288_revA/PORT_TODO.md` (SYSCLK verify → idle/OST → ADC offsets →
-dead-band → protection trips → CAN/encoder/RC-PWM/RGB).
+Primary target. Ordered bring-up stage scripts (run in sequence the day the board returns) — see
+`esc6288_revA/README.md` for the full runbook, pass/stop conditions, and the two hard safety rules
+(default observe-only; any un-trip/PWM behind an explicit arg with unconditional safe-off on exit).
+Safe-off here is the EPWM trip-zone (OST), since the JSM6288T has no gate-enable pin.
+
+| script | stage (PORT_TODO step) |
+|---|---|
+| `s1_rails_clock.js` | rails + clock (SYSCLK ~100 MHz via tick/wall ratio) |
+| `s2_idle_ost.js` | idle PWM / OST safe-off (`verify=offcal`/`verify=untrip`) |
+| `s3_adc_offsets.js` | ADC zero-current / Udc / NTC→°C |
+| `s5_protection.js` | CMPSS3 OC / CMPSS5 OV / trip-zone (`force=tz`/`inject=oc`/`inject=ov`) |
+| `s6_peripherals.js` | CAN / MT6701 encoder / RC-PWM / RGB (read-only) |
+
+Stage 4 (first spin) is intentionally NOT scripted yet — it is the only step that un-trips the
+gates into switching; deferred to a separate first-spin script (manual stop conditions in the
+board README).
