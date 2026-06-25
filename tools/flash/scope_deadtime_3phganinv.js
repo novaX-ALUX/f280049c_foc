@@ -15,17 +15,24 @@
  * re-arms offset cal forever (default flagEnableOffsetCalibration=true), so this 50% zero-vector runs
  * continuously -- a clean dead-band source independent of the (absent) bus.
  *
- * !!! THE 24 V (OR ANY) BUS MUST BE AT 0 V !!!
- * The LMG5200 has NO internal shoot-through protection -- the MCU dead-band is the ONLY protection,
- * and that is exactly what is unverified here. HARD-ABORTS if VdcBus_V reads above 2 V at start OR
- * rises above it during the hold, disabling the buffer IMMEDIATELY (GPBSET first, then flags).
+ * !!! THE 24 V BUS MUST BE OFF (board on USB / J5 3.3 V back-feed) FOR THIS STEP !!!
+ * On this BoosterPack the 5 V / 3.3 V / VREF ALL come from VBUS via the LM5017 buck (sheet 1/2). With
+ * the bus OFF, the LMG5200 VCC (5 V gate drive) is unpowered -> the GaN FETs sit in UVLO and the power
+ * stage CANNOT conduct, regardless of what HI/LI do. THAT is what makes scoping the MCU dead-band safe
+ * here: we verify the complementary-PWM non-overlap while the stage is physically dead. (The
+ * SN74AVC8T245 buffer still runs on the J5 back-fed 3.3 V, so it passes the PWM to the LMG5200 inputs
+ * for probing.) HARD-ABORTS if VdcBus_V reads above 8 V at start or rises above it during the hold --
+ * that threshold cleanly separates "bus off / USB back-feed" (~0-3 V noise floor we measured) from
+ * "24 V applied" -- disabling the buffer IMMEDIATELY (GPBSET first, then flags).
  *
  * GaN polarity: nEn_uC is ACTIVE-LOW. enable = GPBCLEAR 0x7F0C bit7 (GPIO39 LOW, readback 0);
  *               disable = GPBSET 0x7F0A bit7 (GPIO39 HIGH, readback 1). Opposite of DRV8305.
  *
- * Scope hint: probe one phase's two LMG5200 PWM inputs (HI and LO of the same half-bridge). Confirm
- * they are NEVER high together; measure the gap = the MCU dead-band (HAL_PWM_DBRED_CNT/DBFED_CNT = 20
- * counts ~ 200 ns). Repeat per phase. Only after non-overlap is confirmed should any bus be applied.
+ * Scope hint: probe phase A's high/low pair and confirm they are NEVER high together; the gap = the
+ * MCU dead-band (HAL_PWM_DBRED_CNT/DBFED_CNT = 20 counts ~ 200 ns). Most robust probe point: the MCU
+ * EPWM pins (LaunchPad header pin 40/39 = GPIO10/11), which are driven straight from the USB-powered
+ * MCU. Or after the buffer at the LMG5200 HI/LI (phase-A series resistors R5/R6). Repeat per phase.
+ * Only after non-overlap is confirmed should any bus voltage be applied.
  */
 importPackage(Packages.com.ti.debug.engine.scripting);
 importPackage(Packages.com.ti.ccstudio.scripting.environment);
@@ -40,7 +47,8 @@ function getf(nm){ try { var a=Number(e.evaluate("&"+nm));
 
 var ccxml=arguments[0], out=arguments[1];
 var HOLD_S = (arguments.length > 2) ? Number(arguments[2]) : 20.0;
-var BUS_MAX_SCOPE = 2.0;   // V -- bus MUST be ~0 for dead-time scoping; abort above this.
+var BUS_MAX_SCOPE = 8.0;   // V -- separates "bus off / USB back-feed" (~0-3 V) from "24 V applied".
+                           // Real safety: bus off => LMG5200 VCC unpowered (LM5017 has no input) => stage can't conduct.
 
 var env=ScriptingEnvironment.instance(); env.setScriptTimeout(120000);
 var server=env.getServer("DebugServer.1"); server.setConfig(ccxml);
