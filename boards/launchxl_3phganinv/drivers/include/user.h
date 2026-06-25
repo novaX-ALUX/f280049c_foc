@@ -323,7 +323,9 @@ extern "C" {
 
 
 //! \brief Defines the forced angle frequency, Hz
-//!
+//!        (Bench 2026-06: tried 5.0 to keep force-angle engaged past the estimator's false low-speed
+//!        reading; did not resolve the no-lock issue, so left at the 1.0 default pending proper
+//!        sensorless commissioning -- see boards/launchxl_3phganinv/PORT_TODO.md bench results.)
 #define USER_FORCE_ANGLE_FREQ_Hz            ((float32_t)(1.0))
 
 

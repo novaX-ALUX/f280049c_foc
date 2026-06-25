@@ -33,21 +33,58 @@ No SPI, no gate-driver fault pin, no WAKE. `BOARD_HAS_GATE_FAULT_INPUT = 0`.
 - `USER_ADC_FULL_SCALE_VOLTAGE_V = 81.5`  ← ⚠️ confirm exact divider resistors on the bench
 - `IA/IB/IC_OFFSET_A = +16.5`  (POSITIVE: read functions use a positive current_sf on this board)
 - Current `current_sf` is POSITIVE in HAL_readADCData* (GaN INA240 inverted vs DRV8301/8305).
+  ⚠️ **UNCONFIRMED** — the current loop is stable with +sf, but FAST never locked at low speed
+  (see bench results); the sf sign / current-phase mapping vs PWM order is still to be commissioned.
 
-## Bench-verify items (do before applying bus voltage)
-- [ ] **Gate enable polarity**: confirm GPIO39 idles HIGH (PWM disabled) at reset and after
-      HAL_setupGPIOs; only HAL_enableDRV() drives it LOW. Verify no PWM at the LMG5200 inputs
-      until enabled.
-- [ ] **Dead-time** (`HAL_PWM_DBRED_CNT`/`DBFED_CNT = 20` ≈ 200 ns in hal.h): LMG5200 has NO
-      internal shoot-through protection — scope both half-bridge inputs at low/zero bus, confirm
-      non-overlap, then tune down. Do NOT raise bus voltage until verified.
-- [ ] **Current-sense sign**: run is02 offset-cal, inject a known DC current, confirm Iq/torque
-      direction. Flip `current_sf` sign in hal.h (both read functions) + offset sign in user.h if needed.
-- [ ] **Phase order**: `BUILD_PWM_PHASE_ORDER=4` (build.sh) is the starting point — confirm
-      rotation direction; swap two motor leads or change the order if reversed.
-- [ ] **Over-temp trip**: confirm GPIO58 reads HIGH in normal operation (TMP302 deasserted, pull-up
-      R48) and that asserting OT (active-low) trips PWM via the ePWM trip zone.
-- [ ] **Voltage full-scale**: confirm 81.5 V against the actual divider; read VDC at a known bus voltage.
+## Bench-verify items
+- [x] **Gate enable polarity**: GPIO39 idles HIGH (buffer disabled) at the is01 dead-wait; only the
+      `*_3phganinv.js` helpers drive it LOW. Confirmed (check_3phganinv_is01.js).
+- [x] **Dead-time** (`HAL_PWM_DBRED_CNT`/`DBFED_CNT = 20` ≈ 200 ns): scoped at 0 V bus via
+      scope_deadtime_3phganinv.js — high/low non-overlap ~200 ns, as expected. No shoot-through at
+      24 V either (is06/is07 ran fault-free). NOTE: LMG5200 "8 ns" in the datasheet is the t_MON/t_MOFF
+      channel delay-MATCHING max, NOT an internal dead-time — the MCU dead-band is the only protection.
+- [~] **Current-sense sign / phase order**: NOT resolved — see "FOC commissioning TODO" below. is02
+      offsets are clean/symmetric; current loop stable; but FAST does not lock (speed sign inverted vs
+      command, magnitude wrong). Needs methodical commissioning, not the simple flip noted earlier.
+- [x] **Over-temp**: GPIO58 reads HIGH in normal operation (TMP302 deasserted). Trip not exercised.
+- [x] **Voltage full-scale**: VdcBus reads ~24.0 V at a metered 24 V bus → 81.5 V FS is about right.
+      (Confirm exact divider at higher bus before relying on it.)
+
+## Bench results (2026-06-24, AM-4116-KVA on 24 V)
+Hardware bring-up of the new board **succeeded**. Validated over the XDS110/DSS helpers:
+- **Power architecture (important):** the BoosterPack makes its own 5 V/3.3 V/VREF **from VBUS**
+  (LM5017 buck → LP38691 LDO → REF3333; schematic sheets 1–2). **USB-only does NOT properly power the
+  analog/gate stage** — with the bus off the board only weak-back-feeds 3.3 V through the **J5** jumper
+  (VREF read 1.29 V, INA240 bias ~1208 cts). With 24 V applied: D5/D6 lit, VREF 2.99 V, VdcBus 24.0 V.
+- **J5 jumper:** with the bus on, the BoosterPack's 3.3 V contends with the LaunchPad USB 3.3 V through
+  J5 → this **dropped the XDS110** once. Fix: remove J5 for bus-powered + USB-debug (board self-powers
+  analog; LaunchPad on USB). Re-applied bus afterward with no debugger drop.
+- **is01 / is02:** GPIO39 safe-off confirmed; offset cal clean (3-phase symmetric, 2–3 LSB noise),
+  VdcBus 24 V, voltage offsets valid with the bus on.
+- **Dead-band:** scoped non-overlap ~200 ns at 0 V bus.
+- **is06 @ 24 V:** power stage switches with NO shoot-through (fault-free), current loop closes (Iq
+  tracks command), flux ≈ 0.0128 ≈ KV450 → correct motor profile. Iq ≤ 0.5 A would not break the rotor
+  loose from standstill (torque mode, no rotating reference).
+- **is07 speed control (run_is07_3phganinv.js, Iq capped 1.5 A):** the motor **spins** and follows the
+  commanded direction (+ref → CW, −ref → CCW), but roughly, and **FAST never locks** — estimated speed
+  is inverted vs the command and wrong magnitude, and is independent of physical direction (swapping
+  two motor leads flipped rotation but not FAST's reading) → FAST is not tracking the rotor.
+
+⚠️ VREF reads **2.99 V** (REF3333 nominal 3.3 V) → INA240 bias ~1.0 V not 1.65 V → asymmetric current
+range (+22.9 / −10.1 A). Fine for small-Iq bring-up; investigate before high-current work.
+
+## FOC commissioning TODO (next session — not a one-line fix)
+The board is proven; what remains is sensorless commissioning. Do it methodically, NOT by blind
+sweeping (PWM_PHASE_ORDER=2 drew ~10 A at 24 V in a wrong frame). Suggested order:
+1. Drop the bus to ~12 V (LM5017 min) to bound wrong-frame current; keep the speed-loop Iq capped.
+2. With a **controlled open-loop rotating vector** (angle commanded by us, estimator out of the loop),
+   confirm PWM phase order × current-sense phase mapping are self-consistent and which direction is +.
+3. Then settle the **current_sf sign** (only change from the proven DRV8305 config) against a known
+   current; fix offset sign to match.
+4. Verify motor params (the 4116 Rs/Ls/flux came from a legacy esc_drv8300 ID) — re-ID if needed for
+   FAST to lock; FAST is weak at the ~20 Hz we tried, so also test at higher speed.
+5. Restore `USER_MOTOR_MAX_CURRENT_A` (reverted to 8.0) / speed-loop gains and re-tune.
+Helpers added this session: `tools/flash/{check_3phganinv_is01,cal_is02_3phganinv,scope_deadtime_3phganinv,run_is06_3phganinv,run_is07_3phganinv}.js`.
 
 ## Bench bring-up procedure (AM-4116 on this board)
 
