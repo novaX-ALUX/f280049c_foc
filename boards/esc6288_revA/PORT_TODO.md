@@ -1,7 +1,7 @@
 # esc6288_revA — bring-up checklist
 
 Status: **ported from the final schematic + netlist; all build gates green** (SRC_CHECK,
-CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 7/7). The board is at fab;
+CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 8/8). The board is at fab;
 the items below are what to verify/tune once the prototype returns. Anything marked
 **[BENCH]** needs the hardware (scope/meter) to confirm.
 
