@@ -187,11 +187,19 @@ static void product_read_unique_id(uint16_t uid[16])
 #include "rc_pwm.h"
 #include "mt6701_ssi.h"
 #include "mt6701.h"        // pure angle processing (raw SSI code -> angle/velocity)
+#include "ntc.h"           // pure NTC thermistor ADC-count -> degrees C
 #include "rgb_led.h"
 
 // MT6701 processed-angle state: raw 14-bit SSI code -> mechanical/electrical angle, unwrap,
 // velocity, glitch/stale. Fed one frame per 1 ms tick from MT6701_SSI_read().
 static mt6701_state_t g_enc;
+
+// Board NTC divider + curve (values from board.h; trim on the bench). Drives esc_control's
+// over-temp latch via raw.temp_C.
+static const ntc_cfg_t g_ntc_cfg = {
+    BOARD_NTC_R_FIXED_OHM, BOARD_NTC_R25_OHM, BOARD_NTC_BETA_K, BOARD_NTC_T0_K,
+    BOARD_NTC_ADC_FULL_COUNTS, BOARD_NTC_LOW_SIDE, BOARD_NTC_OPEN_TEMP_C
+};
 #endif
 
 // esc6288_revA fast (per-ISR, 20 kHz) software overcurrent backstop, amps. Phases A/B have
@@ -222,7 +230,7 @@ static void product_build_esc_cfg(esc_control_cfg_t *c)
     c->oc_set_A   = 30.0f;  c->oc_clr_A   = 25.0f;   // current FS is +/-165 A; start low
     c->vbus_ov_set = 54.0f; c->vbus_ov_clr = 50.0f;  // 12S max charge 50.4 V; HW OV ~56 V
     c->vbus_uv_set = 18.0f; c->vbus_uv_clr = 22.0f;  // low for bench; raise for flight
-    c->temp_ot_set = 100.0f; c->temp_ot_clr = 85.0f; // NTC->degC mapping is a TODO (raw 25 C now)
+    c->temp_ot_set = 100.0f; c->temp_ot_clr = 85.0f; // live: NTC->degC via ntc.c (trim curve on bench)
 #else
     c->oc_set_A   = 8.0f;  c->oc_clr_A   = 6.0f;
     c->vbus_ov_set = 30.0f; c->vbus_ov_clr = 28.0f;
@@ -362,7 +370,14 @@ static void product_tick_1ms(void)
     raw.iq_meas_A      = Idq_in_A.value[1];
     raw.i_motor_A      = imot;
     raw.speed_est_krpm = motorVars.speed_krpm;
-    raw.temp_C         = 25.0f;   // TODO: launchxl has no temperature sensor wired
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+    // board NTC (ADCINC3 -> ADCC SOC2): raw count -> degrees C; feeds esc_control's over-temp
+    // latch (temp_ot_set). A dead sensor (open/short) reads back open_temp_C (150 C) -> trips.
+    raw.temp_C         = ntc_counts_to_celsius(&g_ntc_cfg,
+                             (uint16_t)ADC_readResult(BOARD_NTC_ADC_RESULT_BASE, BOARD_NTC_ADC_SOC));
+#else
+    raw.temp_C         = 25.0f;   // launchxl has no temperature sensor wired
+#endif
     raw.gate_fault     = (BOARD_HAS_GATE_FAULT_INPUT != 0) &&
                          (GPIO_readPin(BOARD_GATE_FAULT_GPIO) == 0U);
 

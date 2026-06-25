@@ -84,6 +84,20 @@
 #define BOARD_RCPWM_XBAR_INPUT              XBAR_INPUT1
 #define BOARD_RCPWM_ECAP_INPUT              ECAP_INPUT_INPUTXBAR1
 
+// ---- Board temperature NTC (NCP18XH103, ADCINC3, ADCC SOC2) ----
+// Schematic divider: 3V3 -- NTC1 (thermistor) -- [ADCINC3] -- R14 (10k) -- GND.
+// => NTC is HIGH-side, R14 low-side: ntc_low_side = false. Both 10k -> half-scale at 25 C.
+// [BENCH] confirm R14 value + the 3V3/VREFHI rail and trim r25/beta to the curve on the bench.
+#define BOARD_NTC_ADC_RESULT_BASE           ADCCRESULT_BASE
+#define BOARD_NTC_ADC_SOC                   ADC_SOC_NUMBER2
+#define BOARD_NTC_R_FIXED_OHM               (10000.0f)   // R14
+#define BOARD_NTC_R25_OHM                   (10000.0f)   // NCP18XH103 R25
+#define BOARD_NTC_BETA_K                    (3380.0f)    // NCP18XH103 B25/85
+#define BOARD_NTC_T0_K                      (298.15f)
+#define BOARD_NTC_ADC_FULL_COUNTS           (4096.0f)    // 12-bit ADC
+#define BOARD_NTC_LOW_SIDE                  (false)      // NTC to 3V3 (high-side)
+#define BOARD_NTC_OPEN_TEMP_C               (150.0f)     // fail-safe hot on open/short
+
 #if (BUILD_BOARD_ID != BUILD_BOARD_ID_ESC6288_REVA)
 #error "config/build_config.h does not select esc6288_revA"
 #endif

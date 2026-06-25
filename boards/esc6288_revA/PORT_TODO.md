@@ -70,8 +70,14 @@ header comment in `drivers/include/board.h`.
   (4) `auto_park` is deliberately left **disabled** until the encoder is validated with a prop.
 - **RGB WS2812 timing** (`rgb_led.c`) — the bit-bang loop counts are approximate; scope GPIO12
   and tune `WS_*_LOOPS` to the WS2812B timing.
-- **NTC → °C** — NTC is sampled (ADCINC3) but not yet converted; product temperature is a 25 °C
-  placeholder, so over-temp protection is inert until the NCP18XH103 curve is added.
+- **NTC → °C** — **implemented; bench-pending calibration.** The NCP18XH103 (ADCINC3 → ADCC SOC2)
+  is converted by the pure, host-tested `ntc_counts_to_celsius()` (`src/common/ntc.c`, beta model)
+  using the board divider in `board.h` (3V3 — NTC — [ADC] — R14 10k — GND, so NTC **high-side**).
+  `product_main` feeds the result into `raw.temp_C` → `esc_feedback_t` → `esc_control`'s over-temp
+  latch (`temp_ot_set=100 / clr=85`), which is now **live**. A dead sensor (open/short → near-rail
+  count) reads back `BOARD_NTC_OPEN_TEMP_C` (150 °C) and trips the fault (fail-safe hot).
+  **Remaining [BENCH]:** confirm R14 value + the VREFHI/3V3 rail, and trim `r25`/`beta` against the
+  measured curve (apply known bench temperatures, compare reported °C).
 
 ## Rev-B hardware note (not fixable in firmware on this rev)
 The phase-A and phase-B current-sense op-amp outputs land on **ADCIN A0/B15/C15 and A1**, which
