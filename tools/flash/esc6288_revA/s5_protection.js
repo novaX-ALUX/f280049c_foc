@@ -69,6 +69,8 @@ function report(tag){
       "  moduleOverCurrent=" + num("motorVars.faultNow.bit.moduleOverCurrent"));
 }
 report("baseline (startup, disarmed)");
+// safe invariant: the board must arrive safe-off (gates tripped) before any sub-test.
+if(!ostAllSet()) bail("OST not set at baseline -- power stage NOT safe-off (run stage 2 first / trip path broken).");
 
 if(MODE=="observe"){
     p(""); p(">>> STAGE 5 OK (observe): protection latch/flag baseline read. Nothing forced.");
@@ -93,6 +95,7 @@ if(MODE=="observe"){
     p("  Within the next " + INJECT_WINDOW_S + " s, apply " + which + " using a current-limited /");
     p("  controlled bench source. The script only WAITS and then reads the latch -- it does not");
     p("  create the condition. (Gates remain tripped; this exercises the hardware comparator path.)");
+    if(!ostAllSet()) bail("OST not set before injection -- gates NOT safe-off; aborting (do not inject).");
     s.target.runAsynch(); Thread.sleep(INJECT_WINDOW_S*1000); s.target.halt();
     report("after injection window");
     var v=rd(reg), latched=((v&HLATCH)||(v&LLATCH))!=0;

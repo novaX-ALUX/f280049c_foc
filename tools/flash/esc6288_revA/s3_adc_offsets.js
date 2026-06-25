@@ -26,6 +26,11 @@ function rd(a){ return s.memory.readData(Memory.Page.DATA,a,16,1,false)[0]&0xFFF
 function forceSafeOff(){ try { s.memory.writeData(Memory.Page.DATA,0x409B,0x4,16);
     s.memory.writeData(Memory.Page.DATA,0x419B,0x4,16); s.memory.writeData(Memory.Page.DATA,0x429B,0x4,16);
     } catch(x){} set("motorVars.flagRunIdentAndOnLine",0); set("motorVars.flagEnableSys",0); }
+// safe invariant: EPWM trip-zone one-shot (OST) set on all 3 phases = outputs forced low.
+var TZFLG=[0x4093,0x4193,0x4293], OST=0x4;
+function ostBit(i){ return ((rd(TZFLG[i])&OST)!=0)?1:0; }
+function ostStr(){ return ostBit(0)+"/"+ostBit(1)+"/"+ostBit(2); }
+function ostAllSet(){ return ostBit(0)&&ostBit(1)&&ostBit(2); }
 function getf(nm){ try { var a=Number(e.evaluate("&"+nm));
     var w=s.memory.readData(Memory.Page.DATA,a,16,2,false);
     return java.lang.Float.intBitsToFloat(((w[1]&0xFFFF)<<16)|(w[0]&0xFFFF)); } catch(err){ return NaN; } }
@@ -59,6 +64,9 @@ p(""); p("======== esc6288 STAGE 3: ADC offsets / front-end (observe-only) =====
 s.target.runAsynch(); Thread.sleep(1500); s.target.halt();
 if(!(num("halHandle")>0)) bail("halHandle invalid -- run stage 1 first.");
 if(num("motorVars.flagRunIdentAndOnLine")!=0) bail("unexpectedly ARMED -- abort before reading.");
+// safe invariant: gates must be held off by the trip-zone before we read the front-end.
+p("safe invariant: EPWM TZFLG.OST [1/2/3] = " + ostStr() + " (expect 1/1/1)");
+if(!ostAllSet()) bail("OST not set on all phases -- power stage NOT safe-off (run stage 2 first / trip path broken).");
 
 // raw zero-current counts (mid-rail ~2048). EPWM SOCA triggers even while tripped.
 var ia=rd(0x0B20), ib=rd(0x0B00), ic=rd(0x0B40), udc=rd(0x0B01), ntc=rd(0x0B42);

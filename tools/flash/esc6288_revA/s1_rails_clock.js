@@ -22,6 +22,12 @@ function p(s){ System.out.println(s); }
 function num(nm){ try { return Number(e.evaluate(nm)); } catch(err){ return NaN; } }
 function set(nm,v){ try { e.evaluate(nm+"="+v); return true; } catch(err){ return false; } }
 function f(x,n){ return (isNaN(x)?"nan":x.toFixed(n)); }
+function rd(a){ return s.memory.readData(Memory.Page.DATA,a,16,1,false)[0]&0xFFFF; }
+// safe invariant: EPWM trip-zone one-shot (OST) set on all 3 phases = outputs forced low.
+var TZFLG=[0x4093,0x4193,0x4293], OST=0x4;
+function ostBit(i){ return ((rd(TZFLG[i])&OST)!=0)?1:0; }
+function ostStr(){ return ostBit(0)+"/"+ostBit(1)+"/"+ostBit(2); }
+function ostAllSet(){ return ostBit(0)&&ostBit(1)&&ostBit(2); }
 // emergency safe-off (used on any failure exit): force the trip-zone OST + de-arm. Halting the CPU
 // alone does NOT stop the EPWM peripheral, so a failure path must force the gates off itself.
 function forceSafeOff(){ try { s.memory.writeData(Memory.Page.DATA,0x409B,0x4,16);
@@ -53,6 +59,9 @@ var hh=num("halHandle"), es=num("motorVars.flagEnableSys"), armed=num("motorVars
 p("HAL: halHandle=" + hh + " (expect nonzero)   flagEnableSys=" + es + " (1 by design)   armed=" + armed + " (expect 0)");
 if(!(hh>0)) bail("halHandle invalid -- HAL_init did not complete (rails/clock or boot problem).");
 if(armed!==0) bail("flagRunIdentAndOnLine set with no run command -- unexpected self-arm. ABORT.");
+// safe invariant: gates must be held off by the trip-zone (OST) before we do anything else.
+p("safe invariant: EPWM TZFLG.OST [1/2/3] = " + ostStr() + " (expect 1/1/1 = gates forced low)");
+if(!ostAllSet()) bail("OST not set on all phases -- power stage is NOT safe-off. Trip path broken or already armed.");
 
 // 2) clock check: tick rate vs host wall-clock. g_now_ms increments in the 1 ms ISR, which is
 //    derived from SYSCLK; the ratio exposes a wrong SYSCLK without needing a scope.
