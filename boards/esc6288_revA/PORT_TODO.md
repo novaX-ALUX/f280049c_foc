@@ -1,7 +1,7 @@
 # esc6288_revA — bring-up checklist
 
 Status: **ported from the final schematic + netlist; all build gates green** (SRC_CHECK,
-CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 9/9). The board is at fab;
+CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 10/10). The board is at fab;
 the items below are what to verify/tune once the prototype returns. Anything marked
 **[BENCH]** needs the hardware (scope/meter) to confirm.
 
@@ -105,6 +105,17 @@ ids and learned park refs into an in-RAM `nvparam_t` mirror at the existing stor
 read-back words) and write (`nvparam_encode` → erase/program) — search `TODO(target)` in
 `product_main.c`. Until then the mirror stays at defaults, so node_id falls back to
 `BUILD_NODE_ID` and the park ref boots unlearned (behaviour unchanged).
+
+**Remote access (DroneCAN `param.GetSet`, service 11):** `src/comms/dronecan_param.{h,c}` exposes
+the three nvparam fields (`node_id`, `park_ref_valid`, `park_ref_target_rev`) for GetSet read by
+index/name and write by name. Every write funnels through `nvparam_update_*` (so #4 stays the only
+validation authority: illegal node-id → DNA, NaN/Inf park ref → invalidated), marks
+`dronecan_param_dirty()`, and — like a DNA-allocated id — is folded into the RAM mirror with the
+real Flash write deferred. Pure codec + transport are golden-tested against pydronecan 1.0.27
+(`tools/test/dronecan_param_golden.inc`, `test_dronecan_param`). **[BENCH] interop caveat:** the
+GetSet *response* serializes union tags byte-aligned (matching pydronecan/yakut); confirm GetSet
+read/write against the actual flight controller (ArduPilot) on the bench. A node-id set takes
+effect only after a restart (RestartNode is intentionally not implemented).
 
 ## Build / verify
 ```bash

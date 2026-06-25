@@ -16,6 +16,7 @@
 
 /* Service type IDs (STID) */
 #define DRONECAN_STID_GET_NODE_INFO   1u      /* uavcan.protocol.GetNodeInfo (service) */
+#define DRONECAN_STID_GET_SET         11u     /* uavcan.protocol.param.GetSet (service) */
 
 /* Transfer priorities (lower = higher priority) */
 #define DRONECAN_PRIO_NODE_STATUS     16u
@@ -29,6 +30,8 @@
 #define DRONECAN_ALLOCATION_SIG_HI    0x0B2A8126u
 #define DRONECAN_GET_NODE_INFO_SIG_LO 0x21C46A9Eu  /* sig 0xEE468A8121C46A9E */
 #define DRONECAN_GET_NODE_INFO_SIG_HI 0xEE468A81u
+#define DRONECAN_GET_SET_SIG_LO       0x39D1A4D5u  /* sig 0xA7B622F939D1A4D5 */
+#define DRONECAN_GET_SET_SIG_HI       0xA7B622F9u
 
 /* uavcan.protocol.NodeStatus health / mode */
 #define DRONECAN_HEALTH_OK            0u

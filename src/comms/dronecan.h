@@ -14,6 +14,7 @@
 
 #include "esc_types.h"
 #include "dronecan_frame.h"
+#include "dronecan_param.h"   /* nvparam_t + GetSet codec sizing for the param face */
 
 /* Max GetNodeInfo node name length we will emit (DSDL allows <=80). Bounds the response
  * frame count; the TX caller (dronecan_tick cap) must hold the whole multi-frame transfer. */
@@ -37,6 +38,11 @@ typedef struct {
     uint32_t sw_vcs_commit;        /* SoftwareVersion.vcs_commit; 0 -> optional VCS flag clear */
     const char *node_name;         /* reverse-DNS node name (<=DRONECAN_NODE_NAME_MAX, static
                                     * lifetime; the cfg copy keeps the pointer); NULL -> empty */
+
+    /* GetSet parameter face: the in-RAM nvparam mirror this node exposes/edits over DroneCAN.
+     * NULL disables the param face (GetSet requests then get the canonical empty response).
+     * The pointer must outlive the dronecan_t; writes go through nvparam_update_* (#4 rules). */
+    nvparam_t *nvparam;
 } dronecan_cfg_t;
 
 typedef struct {
@@ -67,6 +73,18 @@ typedef struct {
     uint16_t gni_dst;            /* requester node id (response destination) */
     uint16_t gni_tid;            /* request transfer id, echoed in the response */
     uint16_t gni_prio;           /* request priority, echoed in the response */
+
+    /* GetSet (param.GetSet service): pending response + incoming request reassembly. */
+    bool     gs_pending;         /* a serialized response payload awaits TX */
+    uint16_t gs_dst, gs_tid, gs_prio;  /* requester id / echoed transfer id / echoed priority */
+    uint16_t gs_resp[DRONECAN_PARAM_RESP_MAX];
+    uint16_t gs_resp_len;
+    bool     gs_persist;         /* a Set changed nvparam -> caller persists (sticky) */
+    bool     gs_rx_active;
+    uint16_t gs_rx_src, gs_rx_tid;
+    bool     gs_rx_toggle;
+    uint16_t gs_rx_frames, gs_rx_len;
+    uint16_t gs_rx_buf[DRONECAN_PARAM_REQ_MAX];
 
     /* DNA (dynamic node-id allocatee) */
     uint16_t tid_alloc;
@@ -105,5 +123,9 @@ int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
 uint16_t dronecan_node_id(const dronecan_t *dn);
 bool     dronecan_node_id_dirty(const dronecan_t *dn);
 void     dronecan_clear_node_id_dirty(dronecan_t *dn);
+
+/* A GetSet write changed the nvparam mirror and should be persisted to Flash by the app. */
+bool     dronecan_param_dirty(const dronecan_t *dn);
+void     dronecan_clear_param_dirty(dronecan_t *dn);
 
 #endif /* DRONECAN_H */

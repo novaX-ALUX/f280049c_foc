@@ -1,5 +1,6 @@
 #include "dronecan.h"
 #include "dronecan_ids.h"
+#include "dronecan_param.h"
 #include <stddef.h>
 
 #define ARM_ZERO_FRAMES_DEFAULT 10u
@@ -42,6 +43,19 @@ void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg)
     dn->gni_tid     = 0u;
     dn->gni_prio    = 0u;
 
+    dn->gs_pending   = false;
+    dn->gs_dst       = 0u;
+    dn->gs_tid       = 0u;
+    dn->gs_prio      = 0u;
+    dn->gs_resp_len  = 0u;
+    dn->gs_persist   = false;
+    dn->gs_rx_active = false;
+    dn->gs_rx_src    = 0u;
+    dn->gs_rx_tid    = 0u;
+    dn->gs_rx_toggle = false;
+    dn->gs_rx_frames = 0u;
+    dn->gs_rx_len    = 0u;
+
     dn->tid_alloc         = 0u;
     dn->dna_primed        = false;
     dn->dna_t0            = 0u;
@@ -59,6 +73,8 @@ void dronecan_init(dronecan_t *dn, const dronecan_cfg_t *cfg)
 uint16_t dronecan_node_id(const dronecan_t *dn)      { return dn->node_id; }
 bool     dronecan_node_id_dirty(const dronecan_t *dn){ return dn->node_id_dirty; }
 void     dronecan_clear_node_id_dirty(dronecan_t *dn){ dn->node_id_dirty = false; }
+bool     dronecan_param_dirty(const dronecan_t *dn)  { return dn->gs_persist; }
+void     dronecan_clear_param_dirty(dronecan_t *dn)  { dn->gs_persist = false; }
 
 /* Copy a CAN frame's data bytes (sans tail) into a payload buffer, masking to 8 bits. */
 static void payload_from_frame(dronecan_payload_t *p, const dronecan_frame_t *f, uint16_t nbytes)
@@ -342,6 +358,58 @@ static int build_node_info(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_
     return (int)fidx;
 }
 
+/*
+ * Frame the queued GetSet response payload (dn->gs_resp) back to the requester. Single-frame
+ * (<=7 payload bytes) carries no transfer CRC; multi-frame prepends the 2-byte signature-seeded
+ * CRC, exactly like build_node_info. All-or-nothing: returns 0 (stay pending) if cap is short.
+ */
+static int build_get_set_response(dronecan_t *dn, dronecan_frame_t *out, int cap)
+{
+    uint16_t buf[2u + DRONECAN_PARAM_RESP_MAX];
+    uint16_t total, off, fidx, i;
+    int need;
+    uint32_t id;
+    bool multi = (dn->gs_resp_len > 7u);
+
+    if (multi) {
+        uint16_t seed = dronecan_transfer_crc_seed(DRONECAN_GET_SET_SIG_LO, DRONECAN_GET_SET_SIG_HI);
+        uint16_t crc  = dronecan_crc16(dn->gs_resp, dn->gs_resp_len, seed);
+        buf[0] = (uint16_t)(crc & 0xFFu);
+        buf[1] = (uint16_t)((crc >> 8) & 0xFFu);
+        for (i = 0; i < dn->gs_resp_len; ++i) { buf[2u + i] = dn->gs_resp[i]; }
+        total = (uint16_t)(dn->gs_resp_len + 2u);
+    } else {
+        for (i = 0; i < dn->gs_resp_len; ++i) { buf[i] = dn->gs_resp[i]; }
+        total = dn->gs_resp_len;
+    }
+
+    need = (int)((total + 6u) / 7u);
+    if (cap < need) {
+        return 0;
+    }
+
+    id = dronecan_svc_id(dn->gs_prio, DRONECAN_STID_GET_SET, false /* response */,
+                         dn->gs_dst, dn->node_id);
+    off = 0u;
+    fidx = 0u;
+    while (off < total) {
+        uint16_t remn = (uint16_t)(total - off);
+        uint16_t chunk = (remn >= 7u) ? (uint16_t)7 : remn;
+        dronecan_frame_t *f = &out[fidx];
+        bool sot = (fidx == 0u);
+        bool eot = ((off + chunk) >= total);
+        bool toggle = ((fidx & 1u) != 0u);
+        f->extended = true;
+        f->id = id;
+        for (i = 0; i < chunk; ++i) { f->data[i] = buf[off + i]; }
+        f->data[chunk] = dronecan_tail_encode(sot, eot, toggle, dn->gs_tid);
+        f->dlc = (uint16_t)(chunk + 1u);
+        off = (uint16_t)(off + chunk);
+        fidx++;
+    }
+    return (int)fidx;
+}
+
 int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
                   dronecan_frame_t *out, int cap)
 {
@@ -392,6 +460,15 @@ int dronecan_tick(dronecan_t *dn, uint32_t now_ms, const esc_telemetry_t *tel,
         if (got > 0) {
             n += got;
             dn->gni_pending = false;
+        }
+    }
+
+    /* Answer a pending GetSet (param) request. All-or-nothing like GetNodeInfo. */
+    if (dn->gs_pending) {
+        int got = build_get_set_response(dn, &out[n], cap - n);
+        if (got > 0) {
+            n += got;
+            dn->gs_pending = false;
         }
     }
 
@@ -535,6 +612,91 @@ static void handle_get_node_info(dronecan_t *dn, const dronecan_frame_t *f)
     dn->gni_pending = true;
 }
 
+/*
+ * Reassemble an incoming param.GetSet REQUEST addressed to us and, on the last frame, decode +
+ * apply it (dronecan_param_build_response writes nvparam via the #4 rules) and queue the response
+ * for dronecan_tick. Mirrors handle_allocation's reassembly: single-frame has no transfer CRC,
+ * multi-frame carries a 2-byte signature-seeded CRC at the front.
+ */
+static void handle_get_set(dronecan_t *dn, const dronecan_frame_t *f)
+{
+    dronecan_tail_t tail;
+    uint16_t src, paylen, i, start_byte;
+    bool persist = false;
+
+    if (dn->node_id == 0u) {
+        return; /* unallocated: no source id to answer with yet */
+    }
+    if (!dronecan_id_is_request(f->id)) {
+        return; /* a response, not a request */
+    }
+    src = dronecan_id_source(f->id);
+    if (src == 0u || dronecan_id_dest(f->id) != dn->node_id || f->dlc < 1u) {
+        return; /* must be from a real node, addressed to us, with a tail byte */
+    }
+    tail   = dronecan_tail_decode(f->data[f->dlc - 1u]);
+    paylen = (uint16_t)(f->dlc - 1u);
+
+    if (tail.sot && tail.toggle) {
+        return; /* first frame must have toggle=0 */
+    }
+    if (tail.sot) {
+        dn->gs_rx_active = true;
+        dn->gs_rx_src    = src;
+        dn->gs_rx_tid    = tail.transfer_id;
+        dn->gs_rx_len    = 0u;
+        dn->gs_rx_frames = 0u;
+        dn->gs_rx_toggle = false;
+        dn->gs_prio      = dronecan_id_priority(f->id);  /* echoed in the response */
+    } else {
+        if (!dn->gs_rx_active || dn->gs_rx_src != src || dn->gs_rx_tid != tail.transfer_id) {
+            return; /* not part of the active transfer */
+        }
+        if (tail.toggle != dn->gs_rx_toggle) {
+            return; /* toggle mismatch -> drop */
+        }
+    }
+
+    for (i = 0; i < paylen && dn->gs_rx_len < DRONECAN_PARAM_REQ_MAX; ++i) {
+        dn->gs_rx_buf[dn->gs_rx_len++] = (uint16_t)(f->data[i] & 0xFFu);
+    }
+    dn->gs_rx_frames++;
+    dn->gs_rx_toggle = !dn->gs_rx_toggle;
+
+    if (!tail.eot) {
+        return; /* wait for the rest */
+    }
+    dn->gs_rx_active = false;
+
+    /* Multi-frame transfers carry a 2-byte transfer CRC at the front; single frame does not. */
+    start_byte = (dn->gs_rx_frames > 1u) ? 2u : 0u;
+    if (dn->gs_rx_len < (uint16_t)(start_byte + 2u)) {
+        return; /* too short to be a GetSet request (need at least index + value tag) */
+    }
+    if (start_byte == 2u) {
+        uint16_t seed = dronecan_transfer_crc_seed(DRONECAN_GET_SET_SIG_LO, DRONECAN_GET_SET_SIG_HI);
+        uint16_t want = (uint16_t)(dn->gs_rx_buf[0] | (dn->gs_rx_buf[1] << 8));
+        uint16_t got  = dronecan_crc16(&dn->gs_rx_buf[2], (uint16_t)(dn->gs_rx_len - 2u), seed);
+        if (got != want) {
+            return; /* corrupted transfer -> drop */
+        }
+    }
+
+    dn->gs_resp_len = dronecan_param_build_response(
+        dn->cfg.nvparam, &dn->gs_rx_buf[start_byte],
+        (uint16_t)(dn->gs_rx_len - start_byte),
+        dn->gs_resp, DRONECAN_PARAM_RESP_MAX, &persist);
+    if (dn->gs_resp_len == 0u) {
+        return; /* nothing to send (bad args) */
+    }
+    dn->gs_dst     = src;
+    dn->gs_tid     = tail.transfer_id;   /* response echoes the request transfer id */
+    dn->gs_pending = true;
+    if (persist) {
+        dn->gs_persist = true;           /* a Set changed nvparam -> app persists to Flash */
+    }
+}
+
 void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_result_t *res)
 {
     uint16_t dtid;
@@ -554,9 +716,12 @@ void dronecan_on_rx(dronecan_t *dn, const dronecan_frame_t *f, dronecan_rx_resul
         return; /* DroneCAN is always extended-id */
     }
     if (dronecan_id_is_service(f->id)) {
-        /* Services carry no RawCommand; the only one we answer is GetNodeInfo. */
-        if (dronecan_id_svc_type(f->id) == DRONECAN_STID_GET_NODE_INFO) {
+        /* Services carry no RawCommand; we answer GetNodeInfo and param.GetSet. */
+        uint16_t stid = dronecan_id_svc_type(f->id);
+        if (stid == DRONECAN_STID_GET_NODE_INFO) {
             handle_get_node_info(dn, f);
+        } else if (stid == DRONECAN_STID_GET_SET) {
+            handle_get_set(dn, f);
         }
         return;
     }

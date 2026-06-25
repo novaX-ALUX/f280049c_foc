@@ -291,6 +291,7 @@ static void product_init(void)
     dncfg.sw_version_minor      = PRODUCT_SW_VERSION_MINOR;
     dncfg.sw_vcs_commit         = (uint32_t)BUILD_SW_VCS_COMMIT;  // git short hash (build.sh)
     dncfg.node_name             = PRODUCT_NODE_NAME;
+    dncfg.nvparam               = &g_nvparam;  // GetSet param face reads/writes this mirror
     dronecan_init(&g_dn, &dncfg);
 
     can_bridge_init();
@@ -481,6 +482,12 @@ static void product_tick_1ms(void)
         // DNA allocated an id: record it in the nvparam mirror, then clear the dirty flag.
         (void)nvparam_update_node_id(&g_nvparam, dronecan_node_id(&g_dn));
         dronecan_clear_node_id_dirty(&g_dn);
+        // TODO(target): nvparam_encode(&g_nvparam, words) -> Flash erase/program.
+    }
+    if(dronecan_param_dirty(&g_dn))
+    {
+        // A GetSet write already updated g_nvparam (via nvparam_update_*); just acknowledge.
+        dronecan_clear_param_dirty(&g_dn);
         // TODO(target): nvparam_encode(&g_nvparam, words) -> Flash erase/program.
     }
 }
