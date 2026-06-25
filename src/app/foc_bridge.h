@@ -30,7 +30,9 @@ typedef struct {
     bool  brake;         /* active-brake request */
 } foc_setpoint_t;
 
-/* Raw FAST scalars the product main samples each tick (no encoder on launchxl). */
+/* Raw FAST scalars the product main samples each tick. The encoder fields carry PROCESSED
+ * facts (mt6701_*() outputs): the board that owns an MT6701 fills them; encoder-less boards
+ * (launchxl) leave enc_valid=false. map_feedback passes them straight through. */
 typedef struct {
     float vbus_V;
     float iq_meas_A;
@@ -38,6 +40,10 @@ typedef struct {
     float speed_est_krpm;
     float temp_C;
     bool  gate_fault;
+    float enc_mech_rev;     /* 0..1 processed mechanical position */
+    float enc_vel_revps;
+    bool  enc_valid;        /* false on encoder-less boards -> esc_control never parks */
+    bool  enc_stale;
 } foc_raw_feedback_t;
 
 /* esc_output_t -> FAST setpoint (mode select, iq clamp, krpm->Hz). */
@@ -45,9 +51,9 @@ void foc_bridge_map_output(const foc_bridge_cfg_t *cfg,
                            const esc_output_t *out, foc_setpoint_t *sp);
 
 /*
- * Raw FAST scalars -> esc_feedback_t. The encoder fields are forced INVALID here: launchxl
- * has no MT6701, so enc_valid/enc_stale are false and the angle/velocity are zero. (esc6288
- * will supply a real encoder path; with enc_valid=false esc_control never enters parking.)
+ * Raw FAST scalars -> esc_feedback_t. The encoder fields pass straight through from raw:
+ * the board that owns the MT6701 (esc6288) fills raw.enc_* from the processed encoder layer,
+ * and encoder-less boards (launchxl) leave raw.enc_valid=false so esc_control never parks.
  */
 void foc_bridge_map_feedback(const foc_raw_feedback_t *raw, esc_feedback_t *fb);
 

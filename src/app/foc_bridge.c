@@ -38,9 +38,10 @@ void foc_bridge_map_feedback(const foc_raw_feedback_t *raw, esc_feedback_t *fb)
     fb->temp_C         = raw->temp_C;
     fb->gate_fault     = raw->gate_fault;
 
-    /* launchxl has no encoder -> force invalid so esc_control stays out of parking. */
-    fb->enc_mech_rev  = 0.0f;
-    fb->enc_vel_revps = 0.0f;
-    fb->enc_valid     = false;
-    fb->enc_stale     = false;
+    /* Encoder facts pass through: the board with an MT6701 (esc6288) fills these; an
+     * encoder-less board (launchxl) leaves enc_valid=false so esc_control never parks. */
+    fb->enc_mech_rev  = raw->enc_mech_rev;
+    fb->enc_vel_revps = raw->enc_vel_revps;
+    fb->enc_valid     = raw->enc_valid;
+    fb->enc_stale     = raw->enc_stale;
 }

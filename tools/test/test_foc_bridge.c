@@ -74,7 +74,7 @@ int main(void)
         CHECK_NEAR(sp.iq_ref_A, 0.0f, 1e-6f);
     }
 
-    /* feedback: scalars copied verbatim, encoder forced invalid. */
+    /* feedback: scalars copied verbatim; encoder facts pass straight through. */
     {
         foc_raw_feedback_t raw = {0};
         raw.vbus_V = 24.3f;
@@ -83,11 +83,15 @@ int main(void)
         raw.speed_est_krpm = 1.2f;
         raw.temp_C = 31.0f;
         raw.gate_fault = true;
+        raw.enc_mech_rev = 0.42f;
+        raw.enc_vel_revps = 9.0f;
+        raw.enc_valid = true;
+        raw.enc_stale = false;
         esc_feedback_t fb;
-        /* pre-poison the encoder fields to prove the mapper overwrites them. */
-        fb.enc_mech_rev = 0.42f;
-        fb.enc_vel_revps = 9.0f;
-        fb.enc_valid = true;
+        /* pre-poison the destination to prove the mapper writes every field. */
+        fb.enc_mech_rev = -1.0f;
+        fb.enc_vel_revps = -1.0f;
+        fb.enc_valid = false;
         fb.enc_stale = true;
         foc_bridge_map_feedback(&raw, &fb);
         CHECK_NEAR(fb.vbus_V, 24.3f, 1e-6f);
@@ -96,10 +100,22 @@ int main(void)
         CHECK_NEAR(fb.speed_est_krpm, 1.2f, 1e-6f);
         CHECK_NEAR(fb.temp_C, 31.0f, 1e-6f);
         CHECK(fb.gate_fault);
+        CHECK(fb.enc_valid);
+        CHECK(!fb.enc_stale);
+        CHECK_NEAR(fb.enc_mech_rev, 0.42f, 1e-6f);
+        CHECK_NEAR(fb.enc_vel_revps, 9.0f, 1e-6f);
+    }
+
+    /* encoder-less board (launchxl): enc_valid=false passes through unchanged. */
+    {
+        foc_raw_feedback_t raw = {0};   /* enc_valid defaults false */
+        raw.vbus_V = 12.0f;
+        esc_feedback_t fb;
+        fb.enc_valid = true;            /* must be overwritten to false */
+        foc_bridge_map_feedback(&raw, &fb);
         CHECK(!fb.enc_valid);
         CHECK(!fb.enc_stale);
         CHECK_NEAR(fb.enc_mech_rev, 0.0f, 1e-6f);
-        CHECK_NEAR(fb.enc_vel_revps, 0.0f, 1e-6f);
     }
 
     CHECK_DONE();

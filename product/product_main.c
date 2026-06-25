@@ -186,7 +186,12 @@ static void product_read_unique_id(uint16_t uid[16])
 // MT6701 SSI encoder read (SPIA), and the WS2812 RGB status LED (GPIO12).
 #include "rc_pwm.h"
 #include "mt6701_ssi.h"
+#include "mt6701.h"        // pure angle processing (raw SSI code -> angle/velocity)
 #include "rgb_led.h"
+
+// MT6701 processed-angle state: raw 14-bit SSI code -> mechanical/electrical angle, unwrap,
+// velocity, glitch/stale. Fed one frame per 1 ms tick from MT6701_SSI_read().
+static mt6701_state_t g_enc;
 #endif
 
 // esc6288_revA fast (per-ISR, 20 kHz) software overcurrent backstop, amps. Phases A/B have
@@ -271,6 +276,22 @@ static void product_init(void)
     RC_PWM_init();
     MT6701_SSI_init();
     RGB_init();
+
+    // MT6701 angle-processing config. Bench-pending tuning: zero_offset (mechanical zero),
+    // dir (rotation sign vs the motor), and the glitch/stale thresholds. auto_park stays
+    // DISABLED (product_build_esc_cfg) until the encoder is validated on the bench with a prop.
+    {
+        mt6701_cfg_t ecfg;
+        ecfg.counts_per_rev       = 16384.0f;
+        ecfg.dir                  = 1;
+        ecfg.zero_offset_counts   = 0u;
+        ecfg.pole_pairs           = (uint16_t)USER_MOTOR_NUM_POLE_PAIRS;
+        ecfg.vel_iir_alpha        = 0.2f;    // light low-pass at the 1 kHz tick
+        ecfg.max_delta_rev        = 0.25f;   // glitch threshold (rev/tick)
+        ecfg.stale_limit_samples  = 5u;
+        ecfg.glitch_stale_samples = 5u;
+        mt6701_init(&g_enc, &ecfg);
+    }
 #endif
 }
 
@@ -344,6 +365,25 @@ static void product_tick_1ms(void)
     raw.temp_C         = 25.0f;   // TODO: launchxl has no temperature sensor wired
     raw.gate_fault     = (BOARD_HAS_GATE_FAULT_INPUT != 0) &&
                          (GPIO_readPin(BOARD_GATE_FAULT_GPIO) == 0U);
+
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+    // MT6701 absolute encoder: read one CRC/field-validated SSI frame, process into a
+    // mechanical angle + velocity. enc_valid gates esc_control's parking path.
+    {
+        uint16_t enc_raw14;
+        bool     enc_ok = MT6701_SSI_read(&enc_raw14);
+        mt6701_update(&g_enc, enc_raw14, enc_ok, 0.001f);
+        raw.enc_mech_rev  = mt6701_mech_rev(&g_enc);
+        raw.enc_vel_revps = mt6701_vel_revps(&g_enc);
+        raw.enc_valid     = mt6701_valid(&g_enc);
+        raw.enc_stale     = mt6701_stale(&g_enc);
+    }
+#else
+    raw.enc_mech_rev  = 0.0f;   // no encoder on this board ->
+    raw.enc_vel_revps = 0.0f;
+    raw.enc_valid     = false;  // esc_control never enters parking
+    raw.enc_stale     = false;
+#endif
     foc_bridge_map_feedback(&raw, &fb);
 
     // 3) run the control state machine (NULL command this tick if nothing fresh arrived)

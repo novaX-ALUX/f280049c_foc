@@ -7,16 +7,19 @@ It is split into two layers so the math can be host-tested before the hardware e
 | File | Layer | Status |
 |------|-------|--------|
 | `mt6701.{h,c}` | **Pure angle processing** — raw 14-bit code → mechanical/electrical angle, unwrap, velocity, glitch/stale. No bus, no driverlib. | done, host-tested |
-| `mt6701_ssi.*` | **Bus read** — MT6701 in SSI mode read over the SPI clock, fills raw codes into `mt6701_update()`. | **TODO (deferred)** |
+| `mt6701.{h,c}` | **Pure SSI frame decode** — `mt6701_crc6()` + `mt6701_decode_ssi()`: split a raw 24-bit SSI frame, CRC6-validate (poly X^6+X+1), decode Mg status. | done, host-tested |
+| `boards/esc6288_revA/.../mt6701_ssi.*` | **Bus read** (driverlib) — clocks the 24-bit frame over SPIA with a manual CSN, decodes it, feeds `(raw14, valid)` to `mt6701_update()`. | implemented, **bench-pending** |
 
-## TODO: `mt6701_ssi.*` (bus read layer)
-- On the esc6288 hardware the MT6701 is read over **SSI** (synchronous serial), not I²C.
-  Read the 14-bit angle via the SPI peripheral clock; surface bus-level validity
-  (framing/parity) as the `raw_valid` argument to `mt6701_update()`.
-- Blocked on the encoder pin map in `boards/esc6288_revA/.../board.h` (not defined yet).
-- Keep this layer thin: read raw code + validity only; all angle math stays in `mt6701.c`.
+The frame decode + CRC are pure and live here (host-tested against the independently
+generated `tools/test/mt6701_golden.inc`). The thin driverlib read adapter lives board-side
+(`boards/esc6288_revA/drivers/source/mt6701_ssi.c`) because the host-test purity gate forbids
+driverlib under `src/`.
 
-Until then no `mt6701_ssi.h` is added on purpose — declaring an unimplemented API would
-create a dangling link dependency. The product `main` (also deferred) bridges the processed
-outputs (`mt6701_mech_rev` / `mt6701_vel_revps` / `mt6701_valid` / `mt6701_stale`) into
-`esc_feedback_t`.
+Data flow (esc6288): `MT6701_SSI_read()` → `mt6701_decode_ssi()` (CRC/field/track verdict) →
+`mt6701_update()` → `mt6701_mech_rev` / `mt6701_vel_revps` / `mt6701_valid` / `mt6701_stale`
+→ `foc_raw_feedback_t.enc_*` → `esc_feedback_t` (in `product/product_main.c`). Encoder-less
+boards (launchxl) leave `enc_valid=false`, so `esc_control` never enters parking.
+
+**Bench-pending** (needs the board): SSI clock polarity/phase, manual-CSN timing, the
+SSI-vs-I²C EEPROM default of this MT6701CT-STD part, and tuning `dir` / `zero_offset_counts`
+— see `boards/esc6288_revA/PORT_TODO.md`.

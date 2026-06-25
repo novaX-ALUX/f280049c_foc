@@ -56,11 +56,18 @@ header comment in `drivers/include/board.h`.
 - **OC thresholds** — product `oc_set_A = 30` and `ESC6288_ISR_OC_A = 60` are conservative
   bench values; raise toward the motor/shunt rating after validation.
 - **Bus nominal / UV** — currently 48 V nominal, UV 18 V (bench-friendly); raise UV for flight.
-- **MT6701 SSI** (`mt6701_ssi.c`) — SPI mode set from the datasheet (`docs/MT6701CT-STD.PDF`,
-  sec 6.8): **POL1PHA0**, 24-bit frame (14-bit angle + 4-bit Mg status + 6-bit CRC, poly
-  X^6+X+1). The driver reads the angle correctly (top 14 of a 16-bit word). Remaining: full
-  Mg-status + CRC6 validation (needs CSN held low across a 16+8-bit read via manual GPIO STE)
-  and wiring raw code → `mt6701_update()` → `esc_feedback_t` in the product.
+- **MT6701 SSI** (`mt6701_ssi.c`) — **full 24-bit read + CRC implemented; bench-pending verify.**
+  Per datasheet `docs/MT6701CT-STD.PDF` sec 6.8 (and the encoder daughterboard schematic
+  `ef_encoder_mt6701.{NET,pdf}`): **POL1PHA0**; the 24-bit frame (14-bit angle + 4-bit Mg
+  status + 6-bit CRC, poly X^6+X+1) is now clocked as two 16-bit words inside one **manual-CSN**
+  window (GPIO11 re-muxed from SPISTE to GPIO), then decoded + CRC6-validated by the pure,
+  host-tested `mt6701_decode_ssi()` (`src/encoder/mt6701.c`, golden-vector test). `MT6701_SSI_read()`
+  returns *usable* = CRC ok & field normal & no loss-of-track; the product bridges it through
+  `mt6701_update()` → `foc_raw_feedback_t.enc_*` → `esc_feedback_t`. **Remaining [BENCH]:**
+  (1) confirm the SSI-vs-I²C EEPROM default of this MT6701CT-STD part (MODE=VDD selects the
+  digital interface; the default within it is unverified); (2) confirm clock polarity/phase and
+  the manual-CSN TL/TH timing on the scope; (3) tune `dir` / `zero_offset_counts` to the motor;
+  (4) `auto_park` is deliberately left **disabled** until the encoder is validated with a prop.
 - **RGB WS2812 timing** (`rgb_led.c`) — the bit-bang loop counts are approximate; scope GPIO12
   and tune `WS_*_LOOPS` to the WS2812B timing.
 - **NTC → °C** — NTC is sampled (ADCINC3) but not yet converted; product temperature is a 25 °C
