@@ -130,6 +130,11 @@ case "$BOARD" in
   launchxl_drv8305evm) DEFINES="$DEFINES --define=DRV8305_SPI" ;;
 esac
 
+# Optional extra compiler flags appended verbatim, for opting into gated build switches without
+# editing this file, e.g. enable the esc6288 speed-mode default:
+#   EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
+DEFINES="$DEFINES ${EXTRA_DEFINES:-}"
+
 # --- SRC_CHECK=1: cross-compile ONLY the src/ product modules (no link), as a 0-warning gate. ---
 # Deliberately placed AFTER CFLAGS/DEFINES/INC are built and BEFORE the LAB=all / single-lab paths,
 # so "SRC_CHECK=1 LAB=all bash build.sh" runs the src check and does NOT fall into the LAB=all loop.

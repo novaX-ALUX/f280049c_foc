@@ -308,8 +308,9 @@ static void product_init(void)
 // ---- Speed-mode gate (controlled skeleton) ----
 // The product speed path is OFF by default and is a fail-safe disable unless BOTH (a) this is the
 // esc6288 board AND (b) the runtime flag g_speed_mode_enable is set (flip via debugger, or a
-// future DroneCAN param). The build default of that flag is ESC6288_SPEED_MODE_DEFAULT (override
-// with -DESC6288_SPEED_MODE_DEFAULT=true). Even when allowed, the speed path only LANDS
+// future DroneCAN param). The build default of that flag is ESC6288_SPEED_MODE_DEFAULT; flip it
+// from the standard build entry with EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" (see
+// build.sh). Even when allowed, the speed path only LANDS
 // motorVars.speedRef_Hz; the ISR speed-PI is deferred, so enabling the gate alone does NOT close
 // the loop (Iq stays 0) -- the skeleton is safe to compile and ship.
 #ifndef ESC6288_SPEED_MODE_DEFAULT
