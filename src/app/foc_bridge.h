@@ -18,6 +18,7 @@
 typedef struct {
     float pole_pairs;      /* krpm -> electrical Hz; from the motor profile */
     float iq_cmd_limit_A;  /* redundant hard cap applied to the iq command (>= 0) */
+    float speed_max_hz;    /* speed-mode |speedRef| clamp, electrical Hz (>= 0) */
 } foc_bridge_cfg_t;
 
 /* Plain FAST setpoint; the SDK glue lands these on motorVars / IdqSet_A. */
@@ -46,9 +47,17 @@ typedef struct {
     bool  enc_stale;
 } foc_raw_feedback_t;
 
-/* esc_output_t -> FAST setpoint (mode select, iq clamp, krpm->Hz). */
+/* esc_output_t -> FAST setpoint (mode select, iq clamp, krpm->Hz, speed clamp). */
 void foc_bridge_map_output(const foc_bridge_cfg_t *cfg,
                            const esc_output_t *out, foc_setpoint_t *sp);
+
+/*
+ * Speed-path runtime gate. If sp is in speed mode but the board/runtime does not allow the speed
+ * path (speed_allowed=false), force sp to a coast-disable (enable=false, speedRef/iq zeroed) so
+ * the glue's disable branch takes over -- the fail-safe. Torque-mode and already-disabled
+ * setpoints are left untouched. Pure -> host-tested; the board decides speed_allowed.
+ */
+void foc_bridge_gate_speed(foc_setpoint_t *sp, bool speed_allowed);
 
 /*
  * Raw FAST scalars -> esc_feedback_t. The encoder fields pass straight through from raw:

@@ -23,10 +23,24 @@ void foc_bridge_map_output(const foc_bridge_cfg_t *cfg,
     sp->brake      = out->brake;
     sp->speed_mode = (out->mode == ESC_CTRL_SPEED);
     sp->iq_ref_A   = clampf(out->iq_ref_A, -lim, lim);
-    sp->speed_ref_hz =
-        out->speed_ref_krpm * KRPM_TO_HZ_PER_POLEPAIR * cfg->pole_pairs;
+
+    /* krpm -> electrical Hz, then clamp |speedRef| to the configured ceiling (>= 0). */
+    {
+        float smax = (cfg->speed_max_hz >= 0.0f) ? cfg->speed_max_hz : 0.0f;
+        float ref  = out->speed_ref_krpm * KRPM_TO_HZ_PER_POLEPAIR * cfg->pole_pairs;
+        sp->speed_ref_hz = clampf(ref, -smax, smax);
+    }
     /* keep the park current limit non-negative (esc_control already guarantees this). */
     sp->iq_limit_A = (out->iq_limit_A >= 0.0f) ? out->iq_limit_A : 0.0f;
+}
+
+void foc_bridge_gate_speed(foc_setpoint_t *sp, bool speed_allowed)
+{
+    if (sp->speed_mode && !speed_allowed) {
+        sp->enable       = false;   /* glue's (!enable) branch coasts -> fail-safe disable */
+        sp->speed_ref_hz = 0.0f;
+        sp->iq_ref_A     = 0.0f;
+    }
 }
 
 void foc_bridge_map_feedback(const foc_raw_feedback_t *raw, esc_feedback_t *fb)

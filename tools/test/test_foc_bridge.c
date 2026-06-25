@@ -7,6 +7,7 @@ static foc_bridge_cfg_t base_cfg(void)
     foc_bridge_cfg_t c = {0};
     c.pole_pairs    = 7.0f;     /* AM-4116: 14 poles -> 7 pole pairs */
     c.iq_cmd_limit_A = 20.0f;
+    c.speed_max_hz   = 1000.0f; /* high enough not to clamp the nominal-speed cases */
     return c;
 }
 
@@ -116,6 +117,66 @@ int main(void)
         CHECK(!fb.enc_valid);
         CHECK(!fb.enc_stale);
         CHECK_NEAR(fb.enc_mech_rev, 0.0f, 1e-6f);
+    }
+
+    /* speed-mode clamp: |speedRef_Hz| limited to cfg.speed_max_hz, sign preserved. */
+    {
+        foc_bridge_cfg_t c = base_cfg();
+        c.speed_max_hz = 50.0f;            /* 7 pp */
+        esc_output_t out = {0};
+        out.mode = ESC_CTRL_SPEED;
+        out.enable = true;
+
+        out.speed_ref_krpm = 0.6f;         /* 70 Hz elec -> clamp to 50 */
+        foc_setpoint_t sp;
+        foc_bridge_map_output(&c, &out, &sp);
+        CHECK_NEAR(sp.speed_ref_hz, 50.0f, 1e-4f);
+
+        out.speed_ref_krpm = -0.6f;        /* -70 -> -50 (sign preserved) */
+        foc_bridge_map_output(&c, &out, &sp);
+        CHECK_NEAR(sp.speed_ref_hz, -50.0f, 1e-4f);
+
+        out.speed_ref_krpm = 0.3f;         /* 35 Hz -> under the cap, unchanged */
+        foc_bridge_map_output(&c, &out, &sp);
+        CHECK_NEAR(sp.speed_ref_hz, 35.0f, 1e-4f);
+
+        c.speed_max_hz = 0.0f;             /* cap 0 -> speedRef forced to 0 */
+        out.speed_ref_krpm = 0.6f;
+        foc_bridge_map_output(&c, &out, &sp);
+        CHECK_NEAR(sp.speed_ref_hz, 0.0f, 1e-6f);
+    }
+
+    /* speed gate: when speed is NOT allowed, a speed-mode setpoint is forced to coast-disable. */
+    {
+        foc_setpoint_t sp = {0};
+        sp.speed_mode = true;
+        sp.enable = true;
+        sp.speed_ref_hz = 40.0f;
+        sp.iq_ref_A = 3.0f;
+        foc_bridge_gate_speed(&sp, false);  /* not allowed */
+        CHECK(!sp.enable);                  /* -> glue coasts */
+        CHECK_NEAR(sp.speed_ref_hz, 0.0f, 1e-6f);
+        CHECK_NEAR(sp.iq_ref_A, 0.0f, 1e-6f);
+    }
+    /* speed gate: when allowed, a speed-mode setpoint passes through untouched. */
+    {
+        foc_setpoint_t sp = {0};
+        sp.speed_mode = true;
+        sp.enable = true;
+        sp.speed_ref_hz = 40.0f;
+        foc_bridge_gate_speed(&sp, true);   /* allowed */
+        CHECK(sp.enable);
+        CHECK_NEAR(sp.speed_ref_hz, 40.0f, 1e-6f);
+    }
+    /* speed gate: torque-mode setpoints are never affected by the gate. */
+    {
+        foc_setpoint_t sp = {0};
+        sp.speed_mode = false;
+        sp.enable = true;
+        sp.iq_ref_A = 5.0f;
+        foc_bridge_gate_speed(&sp, false);  /* not allowed, but torque is fine */
+        CHECK(sp.enable);
+        CHECK_NEAR(sp.iq_ref_A, 5.0f, 1e-6f);
     }
 
     CHECK_DONE();
