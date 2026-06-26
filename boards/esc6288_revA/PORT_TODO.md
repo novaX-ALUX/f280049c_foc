@@ -82,8 +82,14 @@ header comment in `drivers/include/board.h`.
   1-bit frame alignment all read valid live angle. **Remaining [BENCH]:** (1) re-confirm on the
   esc6288 **SPIA + HT0104** path (level shifter, different SPI instance) with
   `tools/flash/esc6288_revA/s6_peripherals.js` — expect `g_enc.valid=1` and `position_rev` tracking
-  the magnet; (2) tune `dir` / `zero_offset_counts` to the motor; (3) `auto_park` stays **disabled**
-  until the encoder is validated with a prop.
+  the magnet; (2) tune `dir` / `zero_offset_counts` to the motor.
+- **`auto_park` status** — **disabled by default in code, on every board** (`auto_park_enable=false`
+  in `product_build_esc_cfg`, `product/product_main.c`; the esc6288 `#if` block only sets protection
+  thresholds and does NOT re-enable it). Encoder SSI read is now **protocol-confirmed** (see MT6701
+  above), so that precondition has advanced; remaining gates before flipping it on for esc6288:
+  (a) re-confirm the encoder on the esc6288 SPIA + HT0104 path, (b) tune `dir` / `zero_offset_counts`
+  and confirm the learned park reference, (c) a powered closed-loop **prop-park** bench run. Keep it
+  `false` until all three pass.
 - **RGB WS2812 timing** (`rgb_led.c`) — the bit-bang loop counts are approximate; scope GPIO12
   and tune `WS_*_LOOPS` to the WS2812B timing.
 - **NTC → °C** — **implemented; bench-pending calibration.** The NCP18XH103 (ADCINC3 → ADCC SOC2)
