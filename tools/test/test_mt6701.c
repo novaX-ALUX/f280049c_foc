@@ -224,5 +224,36 @@ int main(void)
         CHECK(!mt6701_decode_ssi(bad, 0));
     }
 
+    /* ---- SSI word-pair alignment (mt6701_ssi_frame) ----
+     * Real two-word captures from the LaunchXL-F280049C SPIB bench (CLK=GPIO22,
+     * DO=GPIO31, CSN=GPIO34). The MT6701 emits one leading bit, so the frame is at
+     * bits [30:7] of (w0:w1). mt6701_ssi_frame() must align to a CRC-valid frame;
+     * the historical >>8 alignment (one bit early) must NOT pass CRC -- that off-by-one
+     * was the bug that made the read silently "valid" only via the all-zero frame. */
+    {
+        struct { uint16_t w0, w1; uint32_t frame24; uint16_t angle; } v[] = {
+            {0xE13E, 0x197F, 0xC27C32, 12447},
+            {0xA04C, 0x1DFF, 0x40983B,  4134},
+            {0xF14E, 0x1FFF, 0xE29C3F, 14503},
+            {0xA980, 0x1E7F, 0x53003C,  5312},
+            {0xE078, 0x17FF, 0xC0F02F, 12348},
+            {0xA04A, 0x147F, 0x409428,  4133},
+        };
+        int n = (int)(sizeof(v) / sizeof(v[0]));
+        int i;
+        for (i = 0; i < n; ++i) {
+            uint32_t frame = mt6701_ssi_frame(v[i].w0, v[i].w1);
+            mt6701_frame_t f;
+            CHECK(frame == v[i].frame24);                 /* exact alignment */
+            CHECK(mt6701_decode_ssi(frame, &f));          /* CRC passes */
+            CHECK(f.angle == v[i].angle);
+            CHECK(f.field_ok && f.track_ok);              /* usable angle */
+
+            /* The old (one-bit-early) assembly must fail CRC on this same capture. */
+            uint32_t bad = (((uint32_t)v[i].w0 << 8) | ((uint32_t)v[i].w1 >> 8)) & 0xFFFFFFu;
+            CHECK(!mt6701_decode_ssi(bad, 0));
+        }
+    }
+
     CHECK_DONE();
 }

@@ -14,14 +14,15 @@
  * A full 24-bit read needs CSN held LOW across the whole frame (the datasheet: transfer
  * starts on CSN low and stops on CSN high). The C28x SPI char length is <= 16 bits and the
  * hardware SPISTE deasserts between chars, so we drive CSN MANUALLY on GPIO11 (re-muxed to
- * GPIO here) and clock two back-to-back 16-bit words inside one CSN-low window. The first
- * 24 of those 32 clocked bits are the frame; the trailing 8 are clocked past the frame end
- * and discarded. The 24-bit frame is then CRC6-checked by mt6701_decode_ssi().
+ * GPIO here) and clock two back-to-back 16-bit words inside one CSN-low window. The MT6701
+ * drives one LEADING bit before the frame, so the 24 frame bits sit at [30:7] of the 32
+ * clocked bits; mt6701_ssi_frame() does that alignment, then mt6701_decode_ssi() CRC6-checks.
  *
- * BENCH-PENDING: the SSI clock polarity/phase, the manual-CSN timing (TL/TH), and the
- * I2C-vs-SSI default of this MT6701CT-STD part (MODE pin = VDD selects the digital
- * interface; the EEPROM default within it must be confirmed) are all unverified until the
- * board is on the bench -- see boards/esc6288_revA/PORT_TODO.md.
+ * BENCH-CONFIRMED on the LaunchXL-F280049C SPIB bench (CLK=GPIO22/DO=GPIO31/CSN=GPIO34):
+ * SPI mode POL1PHA0 + the manual-CSN timing below read live MT6701 SSI data, and the 1-bit
+ * leading offset is real (a >>8 alignment gave CRC 0/6 on real captures, >>7 gives 6/6 and
+ * full-revolution tracking). Re-confirm on the esc6288 SPIA + HT0104 path once the board is
+ * on the bench -- see boards/esc6288_revA/PORT_TODO.md.
  */
 
 #define MT6701_SSI_BITRATE_HZ   (2500000U)   /* well within the MT6701's SSI clock range */
@@ -71,16 +72,14 @@ bool MT6701_SSI_read(uint16_t *raw14)
     SysCtl_delay(5U);
 
     /* 32 contiguous clocks in one CSN-low window. SPI_transmit16Bits is a blocking polling
-     * transaction and the received bits are MSB-aligned in the 16-bit word, so:
-     *   w0 = frame[23:8]   (D13..D0, Mg3, Mg2)
-     *   w1 = frame[7:0] in w1[15:8], then 8 trailing (post-frame) bits in w1[7:0]. */
+     * transaction; the 32 captured bits are [leading bit | 24-bit frame | 7 trailing bits]. */
     w0 = (uint16_t)SPI_transmit16Bits(BOARD_ENC_SPI_BASE, 0x0000U);
     w1 = (uint16_t)SPI_transmit16Bits(BOARD_ENC_SPI_BASE, 0x0000U);
 
     /* CSN high: end the frame. */
     GPIO_writePin(BOARD_ENC_SPI_STE_GPIO, 1U);
 
-    frame24 = ((uint32_t)w0 << 8) | ((uint32_t)w1 >> 8);
+    frame24 = mt6701_ssi_frame(w0, w1);   /* align past the 1-bit lead, keep 24 bits */
 
     (void)mt6701_decode_ssi(frame24, &f);
     *raw14 = f.angle;

@@ -50,6 +50,18 @@ uint16_t mt6701_crc6(uint32_t data18);
  */
 bool mt6701_decode_ssi(uint32_t frame24, mt6701_frame_t *out);
 
+/*
+ * Assemble the 24-bit SSI frame from the two back-to-back 16-bit SPI words of one
+ * CSN-low window (w0 clocked first, MSB-first). The MT6701 drives one LEADING bit
+ * before the frame once CSN goes low, so the 24 frame bits sit at [30:7] of the 32
+ * clocked bits -- NOT [31:8]. The trailing bits are the line idling past frame end
+ * and are dropped. Feed the result to mt6701_decode_ssi().
+ *
+ * Bench-confirmed (LaunchXL-F280049C SPIB): dropping 8 leading bits gave CRC 0/6 on
+ * real captures; dropping 7 (this) gives 6/6. See tools/test/test_mt6701.c.
+ */
+uint32_t mt6701_ssi_frame(uint16_t w0, uint16_t w1);
+
 typedef struct {
     float    counts_per_rev;      /* 16384 for MT6701 */
     int16_t  dir;                 /* +1 or -1 (C28x has no int8_t) */

@@ -43,6 +43,14 @@ bool mt6701_decode_ssi(uint32_t frame24, mt6701_frame_t *out)
     return ok;
 }
 
+uint32_t mt6701_ssi_frame(uint16_t w0, uint16_t w1)
+{
+    /* One leading bit precedes the 24-bit frame, so it occupies bits [30:7] of the
+     * 32 clocked bits: drop 7 leading bits (not 8), keep 24. */
+    uint32_t bits32 = ((uint32_t)w0 << 16) | (uint32_t)w1;
+    return (bits32 >> 7) & 0xFFFFFFu;
+}
+
 void mt6701_init(mt6701_state_t *st, const mt6701_cfg_t *cfg)
 {
     st->cfg = *cfg;

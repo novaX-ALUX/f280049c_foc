@@ -66,18 +66,24 @@ header comment in `drivers/include/board.h`.
 - **OC thresholds** — product `oc_set_A = 30` and `ESC6288_ISR_OC_A = 60` are conservative
   bench values; raise toward the motor/shunt rating after validation.
 - **Bus nominal / UV** — currently 48 V nominal, UV 18 V (bench-friendly); raise UV for flight.
-- **MT6701 SSI** (`mt6701_ssi.c`) — **full 24-bit read + CRC implemented; bench-pending verify.**
-  Per datasheet `docs/MT6701CT-STD.PDF` sec 6.8 (and the encoder daughterboard schematic
-  `ef_encoder_mt6701.{NET,pdf}`): **POL1PHA0**; the 24-bit frame (14-bit angle + 4-bit Mg
-  status + 6-bit CRC, poly X^6+X+1) is now clocked as two 16-bit words inside one **manual-CSN**
-  window (GPIO11 re-muxed from SPISTE to GPIO), then decoded + CRC6-validated by the pure,
-  host-tested `mt6701_decode_ssi()` (`src/encoder/mt6701.c`, golden-vector test). `MT6701_SSI_read()`
-  returns *usable* = CRC ok & field normal & no loss-of-track; the product bridges it through
-  `mt6701_update()` → `foc_raw_feedback_t.enc_*` → `esc_feedback_t`. **Remaining [BENCH]:**
-  (1) confirm the SSI-vs-I²C EEPROM default of this MT6701CT-STD part (MODE=VDD selects the
-  digital interface; the default within it is unverified); (2) confirm clock polarity/phase and
-  the manual-CSN TL/TH timing on the scope; (3) tune `dir` / `zero_offset_counts` to the motor;
-  (4) `auto_park` is deliberately left **disabled** until the encoder is validated with a prop.
+- **MT6701 SSI** (`mt6701_ssi.c`) — **full 24-bit read + CRC; SSI protocol bench-confirmed, esc6288
+  on-board path pending.** Per datasheet `docs/MT6701CT-STD.PDF` sec 6.8 (and the encoder
+  daughterboard schematic `ef_encoder_mt6701.{NET,pdf}`): **POL1PHA0**; the 24-bit frame (14-bit
+  angle + 4-bit Mg status + 6-bit CRC, poly X^6+X+1) is clocked as two 16-bit words inside one
+  **manual-CSN** window (GPIO11 re-muxed from SPISTE to GPIO). **Bench finding (2026-06, LaunchXL
+  SPIB rig, CLK=GPIO22/DO=GPIO31/CSN=GPIO34):** the MT6701 emits **one leading bit** before the
+  frame, so it sits at bits [30:7] of the 32 clocked bits — the original `(w0<<8)|(w1>>8)` alignment
+  was one bit early and gave **CRC 0/6** on real captures; the corrected `mt6701_ssi_frame()`
+  (`>>7`, `src/encoder/mt6701.c`, host-tested) gives **6/6** and clean full-revolution tracking.
+  Frames are then decoded + CRC6-validated by the pure host-tested `mt6701_decode_ssi()`.
+  `MT6701_SSI_read()` returns *usable* = CRC ok & field normal & no loss-of-track; the product
+  bridges it through `mt6701_update()` → `foc_raw_feedback_t.enc_*` → `esc_feedback_t`.
+  **Confirmed:** SSI mode (part responds in SSI, not I²C), POL1PHA0, manual-CSN timing, and the
+  1-bit frame alignment all read valid live angle. **Remaining [BENCH]:** (1) re-confirm on the
+  esc6288 **SPIA + HT0104** path (level shifter, different SPI instance) with
+  `tools/flash/esc6288_revA/s6_peripherals.js` — expect `g_enc.valid=1` and `position_rev` tracking
+  the magnet; (2) tune `dir` / `zero_offset_counts` to the motor; (3) `auto_park` stays **disabled**
+  until the encoder is validated with a prop.
 - **RGB WS2812 timing** (`rgb_led.c`) — the bit-bang loop counts are approximate; scope GPIO12
   and tune `WS_*_LOOPS` to the WS2812B timing.
 - **NTC → °C** — **implemented; bench-pending calibration.** The NCP18XH103 (ADCINC3 → ADCC SOC2)
