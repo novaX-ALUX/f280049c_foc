@@ -90,8 +90,13 @@ header comment in `drivers/include/board.h`.
   (a) re-confirm the encoder on the esc6288 SPIA + HT0104 path, (b) tune `dir` / `zero_offset_counts`
   and confirm the learned park reference, (c) a powered closed-loop **prop-park** bench run. Keep it
   `false` until all three pass.
-- **RGB WS2812 timing** (`rgb_led.c`) — the bit-bang loop counts are approximate; scope GPIO12
-  and tune `WS_*_LOOPS` to the WS2812B timing.
+- **RGB WS2812 timing** (`rgb_led.c`) — **bench-tuned on the LaunchXL GPIO0 rig (2026-06); esc6288
+  GPIO12 path pending.** The original `WS_*_LOOPS` (18/14/7/20) were ~3x too long — even T0H put the
+  '0' high pulse past the WS2812 0→1 threshold, so every bit read '1' (`0xFFFFFF` = stuck white,
+  never off). Retuned to **6/6/1/12**, which renders R/G/B/white/off correctly on the bench. T0H
+  margin is tight (T0H=3 still white, T0H=1 correct). **[BENCH]** re-confirm on the esc6288 GPIO12 →
+  SN74LVC1T45 path (the buffer sharpens edges vs the direct GPIO0 drive) with a scope or a visual
+  color sweep, and nudge `WS_*_LOOPS` if needed.
 - **NTC → °C** — **implemented; bench-pending calibration.** The NCP18XH103 (ADCINC3 → ADCC SOC2)
   is converted by the pure, host-tested `ntc_counts_to_celsius()` (`src/common/ntc.c`, beta model)
   using the board divider in `board.h` (3V3 — NTC — [ADC] — R14 10k — GND, so NTC **high-side**).

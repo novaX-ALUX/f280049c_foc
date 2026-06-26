@@ -8,15 +8,18 @@
  * WS2812(B) bit-bang on GPIO12 (-> SN74LVC1T45 -> RGB1 + GH3). One data line, GRB order,
  * MSB first. A '1' is a long high pulse, a '0' a short one; a >50 us low latches the frame.
  *
- * BENCH TODO: these are LOOP counts, not cycles -- each ws_delay() iteration is several
- * SYSCLK cycles (loop overhead). Scope the GPIO12 line and tune WS_*_LOOPS so that, at the
- * 100 MHz SYSCLK, T1H ~= 0.7 us, T0H ~= 0.35 us, and the bit period ~= 1.25 us. WS2812B
- * tolerances are wide (~+/-150 ns), so exact values are not critical once in range.
+ * The WS_*_LOOPS below are LOOP counts (each ws_delay() iteration is several SYSCLK cycles),
+ * NOT microseconds. Bench finding (2026-06, LaunchXL GPIO0 rig, same 100 MHz SYSCLK + CGT):
+ * the prior 18/14/7/20 values were ~3x too long -- even T0H=7 pushed the '0' high pulse past
+ * the WS2812 0->1 threshold, so every bit read '1' (0xFFFFFF = stuck white, never off). The
+ * values below render R/G/B/white/off correctly. The T0H margin is tight (T0H=3 was still
+ * white, T0H=1 correct), so [BENCH] re-confirm on the esc6288 GPIO12 -> SN74LVC1T45 path
+ * (the level shifter sharpens edges vs the direct GPIO0 drive) with a scope or color sweep.
  */
-#define WS_T1H_LOOPS   18U   /* '1' high  (tune to ~0.70 us) */
-#define WS_T1L_LOOPS   14U   /* '1' low   (tune to ~0.55 us) */
-#define WS_T0H_LOOPS   7U    /* '0' high  (tune to ~0.35 us) */
-#define WS_T0L_LOOPS   20U   /* '0' low   (tune to ~0.80 us) */
+#define WS_T1H_LOOPS   6U    /* '1' high (bench-tuned loop count, ~0.7 us) */
+#define WS_T1L_LOOPS   6U    /* '1' low  */
+#define WS_T0H_LOOPS   1U    /* '0' high (KEY: must stay below the 0->1 threshold) */
+#define WS_T0L_LOOPS   12U   /* '0' low  */
 #define WS_RESET_US    60U   /* >50 us low latch */
 
 static inline void ws_delay(uint16_t loops)
