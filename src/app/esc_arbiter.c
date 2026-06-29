@@ -121,6 +121,29 @@ static void emit(esc_arbiter_state_t *st, esc_src_id_t cand,
     res->status_bits = bits;
 }
 
+static void pwm_update_track(esc_src_state_t *p, const esc_src_state_t *can,
+                             const esc_arbiter_cfg_t *c, float dt)
+{
+    if (!p->healthy) {
+        p->track_dwell_s = 0.0f;
+        p->track_ok = false;          /* lost PWM -> ineligible */
+        return;
+    }
+    if (can->healthy) {
+        float d = p->throttle - can->throttle;
+        if (d < 0.0f) { d = -d; }
+        if (d <= c->track_tol) {
+            p->track_dwell_s += dt;
+            if (p->track_dwell_s >= c->track_required_s) { p->track_ok = true; }
+        } else {
+            p->track_dwell_s = 0.0f;
+            p->track_ok = false;       /* diverged while CAN healthy -> lock out */
+        }
+    }
+    /* CAN unhealthy but PWM healthy: HOLD track_ok latched so a previously-tracking
+     * PWM stays eligible to take over. */
+}
+
 void esc_arbiter_step(esc_arbiter_state_t *st,
                       const esc_src_sample_t *can, const esc_src_sample_t *pwm,
                       float dt_s, esc_arbiter_result_t *res)
@@ -133,6 +156,7 @@ void esc_arbiter_step(esc_arbiter_state_t *st,
     src_update(&st->can, can, c->can_stale_s, dt_s);
     src_update(&st->pwm, pwm, c->pwm_stale_s, dt_s);
     pwm_update_arm(&st->pwm, c, dt_s);
+    pwm_update_track(&st->pwm, &st->can, c, dt_s);
 
     switch (c->policy) {
     case ESC_ARB_EXPLICIT_CAN:
@@ -143,8 +167,11 @@ void esc_arbiter_step(esc_arbiter_state_t *st,
         break;
     case ESC_ARB_CAN_PRIMARY:
     default:
-        /* CAN_PRIMARY is completed in Task 3; treat as CAN-only until then. */
-        if (st->can.healthy) { cand = ESC_SRC_CAN; }
+        if (st->can.healthy) {
+            cand = ESC_SRC_CAN;
+        } else if (st->pwm.healthy && st->pwm.armed && st->pwm.track_ok) {
+            cand = ESC_SRC_PWM;
+        }
         break;
     }
 
@@ -159,5 +186,13 @@ void esc_arbiter_step(esc_arbiter_state_t *st,
             (cand == ESC_SRC_CAN && can->fresh && can->valid) ||
             (cand == ESC_SRC_PWM && pwm->fresh && pwm->valid);
         emit(st, cand, target, arm, cand_fresh, dt_s, res);
+
+        /* Report a PWM that is healthy+armed but not eligible to take over (would-be
+         * fallback denied because it never tracked CAN). Only meaningful under CAN_PRIMARY:
+         * under EXPLICIT_PWM tracking is not a gate, so this bit would mislead at bench. */
+        if (c->policy == ESC_ARB_CAN_PRIMARY &&
+            st->pwm.healthy && st->pwm.armed && !st->pwm.track_ok) {
+            res->status_bits |= (uint32_t)ESC_ARB_ST_PWM_LOCKOUT;
+        }
     }
 }

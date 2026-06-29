@@ -186,5 +186,170 @@ int main(void)
         }
     }
 
+    /* ---- Task 3: CAN_PRIMARY fallback ---- */
+    {
+        esc_arbiter_cfg_t ac = {0};
+        ac.policy = ESC_ARB_CAN_PRIMARY;
+        ac.can_stale_s = 0.10f;  ac.pwm_stale_s = 0.06f;
+        ac.pwm_arm_low_s = 0.20f; ac.pwm_arm_throttle_eps = 0.05f;
+        ac.track_tol = 0.10f;    ac.track_required_s = 0.30f;
+        ac.handoff_slew_per_s = 4.0f;
+        ac.pwm = pwm_cfg();
+        const float dt = 0.001f;
+        esc_arbiter_result_t r;
+
+        /* Helper sequences are inline below. */
+
+        /* (a) CAN dies, PWM was armed + tracking -> fallback to PWM. */
+        {
+            esc_arbiter_state_t st; esc_arbiter_init(&st, &ac);
+            esc_src_sample_t can = {0}, pwm = {0};
+            int i;
+            /* phase 1: both healthy, PWM arms low then both ramp together (tracking) */
+            pwm.fresh = pwm.valid = true; pwm.throttle = 0.0f;
+            can.fresh = can.valid = true; can.throttle = 0.0f; can.arm_req = true;
+            for (i = 0; i < 300; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); } /* arm dwell */
+            can.throttle = 0.50f; pwm.throttle = 0.48f;     /* agree within tol */
+            for (i = 0; i < 400; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); } /* track dwell */
+            CHECK(r.active == ESC_SRC_CAN);                 /* CAN still primary */
+            /* phase 2: CAN stops, PWM continues */
+            esc_src_sample_t cannone = {0};
+            bool fellback = false;
+            for (i = 0; i < 200; i++) {
+                esc_arbiter_step(&st, &cannone, &pwm, dt, &r);
+                if (r.active == ESC_SRC_PWM) { fellback = true; break; }
+            }
+            CHECK(fellback);
+            CHECK(r.have_cmd);
+            CHECK(r.status_bits & ESC_ARB_ST_PWM_ACTIVE);
+        }
+
+        /* (b) Stuck-mid PWM that NEVER tracked CAN -> no fallback when CAN dies. */
+        {
+            esc_arbiter_state_t st; esc_arbiter_init(&st, &ac);
+            esc_src_sample_t can = {0}, pwm = {0};
+            int i;
+            pwm.fresh = pwm.valid = true; pwm.throttle = 0.0f;   /* low so it can arm */
+            can.fresh = can.valid = true; can.throttle = 0.0f; can.arm_req = true;
+            for (i = 0; i < 300; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); } /* arm */
+            can.throttle = 0.60f; pwm.throttle = 0.20f;          /* diverge -> never tracks */
+            for (i = 0; i < 500; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            CHECK(r.status_bits & ESC_ARB_ST_PWM_LOCKOUT);       /* armed but ineligible */
+            esc_src_sample_t cannone = {0};
+            bool fellback = false;
+            for (i = 0; i < 300; i++) {
+                esc_arbiter_step(&st, &cannone, &pwm, dt, &r);
+                if (r.active == ESC_SRC_PWM) { fellback = true; break; }
+            }
+            CHECK(!fellback);                                    /* locked out */
+            CHECK(!r.have_cmd);                                  /* both effectively gone */
+        }
+
+        /* (c) Both die AFTER being armed and running -> no command (the dangerous case). */
+        {
+            esc_arbiter_state_t st; esc_arbiter_init(&st, &ac);
+            esc_src_sample_t can = {0}, pwm = {0};
+            int i;
+            pwm.fresh = pwm.valid = true; pwm.throttle = 0.0f;
+            can.fresh = can.valid = true; can.throttle = 0.0f; can.arm_req = true;
+            for (i = 0; i < 300; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            can.throttle = 0.40f; pwm.throttle = 0.40f;          /* armed + running, tracking */
+            for (i = 0; i < 400; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            CHECK(r.have_cmd && r.active == ESC_SRC_CAN);
+            esc_src_sample_t none = {0};
+            bool coasted = false;
+            for (i = 0; i < 300; i++) {
+                esc_arbiter_step(&st, &none, &none, dt, &r);
+                if (!r.have_cmd) { coasted = true; break; }
+            }
+            CHECK(coasted);
+            CHECK(r.active == ESC_SRC_NONE);
+        }
+
+        /* (f) PWM->CAN recovery: after a CAN-loss fallback, CAN returning is preferred
+         *     again, with the handoff blend bounding the step back. */
+        {
+            esc_arbiter_state_t st; esc_arbiter_init(&st, &ac);
+            esc_src_sample_t can = {0}, pwm = {0};
+            int i;
+            pwm.fresh = pwm.valid = true; pwm.throttle = 0.0f;
+            can.fresh = can.valid = true; can.throttle = 0.0f; can.arm_req = true;
+            for (i = 0; i < 300; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            can.throttle = 0.50f; pwm.throttle = 0.45f;
+            for (i = 0; i < 400; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            /* CAN drops -> fall to PWM */
+            esc_src_sample_t cannone = {0};
+            for (i = 0; i < 200 && r.active != ESC_SRC_PWM; i++) {
+                esc_arbiter_step(&st, &cannone, &pwm, dt, &r);
+            }
+            CHECK(r.active == ESC_SRC_PWM);
+            /* CAN returns -> must reclaim immediately (it is primary when healthy) */
+            can.throttle = 0.50f;
+            esc_arbiter_step(&st, &can, &pwm, dt, &r);
+            CHECK(r.active == ESC_SRC_CAN);
+        }
+
+        /* (g) track_ok clears when PWM goes stale, ISOLATED from the arm gate: after the
+         *     PWM drops out (clearing both track_ok and armed), it returns at idle-low and
+         *     RE-ARMS, but with CAN dead it cannot re-track. So armed==true while
+         *     track_ok==false -> the lockout (NOT the arm gate) is the sole blocker. This
+         *     catches a regression where track_ok fails to clear on dropout. */
+        {
+            esc_arbiter_state_t st; esc_arbiter_init(&st, &ac);
+            esc_src_sample_t can = {0}, pwm = {0};
+            int i;
+            pwm.fresh = pwm.valid = true; pwm.throttle = 0.0f;
+            can.fresh = can.valid = true; can.throttle = 0.0f; can.arm_req = true;
+            for (i = 0; i < 300; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            can.throttle = 0.50f; pwm.throttle = 0.50f;
+            for (i = 0; i < 400; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); } /* tracked */
+            CHECK(st.pwm.track_ok);                        /* precondition: was eligible */
+            /* PWM drops out long enough to go unhealthy -> track_ok AND armed clear */
+            for (i = 0; i < 100; i++) { esc_arbiter_step(&st, &can, &(esc_src_sample_t){0}, dt, &r); }
+            CHECK(!st.pwm.track_ok);
+            CHECK(!st.pwm.armed);
+            /* CAN dies; PWM returns at idle-low and re-arms (dwell), but cannot re-track */
+            esc_src_sample_t cannone = {0};
+            esc_src_sample_t plo = {0}; plo.fresh = plo.valid = true; plo.throttle = 0.0f;
+            bool fellback = false;
+            for (i = 0; i < 400; i++) {
+                esc_arbiter_step(&st, &cannone, &plo, dt, &r);
+                if (r.active == ESC_SRC_PWM) { fellback = true; break; }
+            }
+            CHECK(!fellback);                              /* never falls back */
+            CHECK(st.pwm.armed);                           /* arm gate satisfied again ... */
+            CHECK(!st.pwm.track_ok);                       /* ... so track_ok is the SOLE blocker */
+            CHECK(r.status_bits & ESC_ARB_ST_PWM_LOCKOUT);
+        }
+
+        /* (e) Handoff slew: on a CAN->PWM switch the output ramps to PWM's value
+         *     (0.08 below CAN, within track_tol) without stepping > slew*dt per tick. */
+        {
+            esc_arbiter_state_t st; esc_arbiter_init(&st, &ac);
+            esc_src_sample_t can = {0}, pwm = {0};
+            int i;
+            pwm.fresh = pwm.valid = true; pwm.throttle = 0.0f;
+            can.fresh = can.valid = true; can.throttle = 0.0f; can.arm_req = true;
+            for (i = 0; i < 300; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            can.throttle = 0.50f; pwm.throttle = 0.42f;          /* track within 0.10 tol */
+            for (i = 0; i < 400; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
+            float last = r.cmd.throttle;                         /* ~0.50 on CAN */
+            CHECK_NEAR(last, 0.50f, 1e-4f);
+            esc_src_sample_t cannone = {0};
+            bool reached = false;
+            for (i = 0; i < 200; i++) {                          /* CAN gone -> fall to PWM 0.42 */
+                esc_arbiter_step(&st, &cannone, &pwm, dt, &r);
+                if (r.have_cmd) {
+                    float jump = r.cmd.throttle - last;          /* may be negative */
+                    if (jump < 0.0f) { jump = -jump; }
+                    CHECK(jump <= ac.handoff_slew_per_s * dt + 1e-5f);
+                    last = r.cmd.throttle;
+                    if (fabsf(last - 0.42f) < 1e-3f) { reached = true; }
+                }
+            }
+            CHECK(reached);                                      /* slewed all the way to PWM */
+        }
+    }
+
     CHECK_DONE();
 }
