@@ -7,7 +7,7 @@
  * lives in the (later) product main, not here.
  *
  * Three axes meet here only as plain data:
- *   comms  -> app : esc_command_t   (throttle / arm, from DroneCAN)
+ *   arbiter-> app : esc_command_t   (throttle / arm; selected from DroneCAN or RC-PWM by esc_arbiter)
  *   sensors-> app : esc_feedback_t  (already-processed facts; never raw codes)
  *   app    -> FOC : esc_output_t    (torque/speed reference for the bridge)
  *   app    -> comms: esc_telemetry_t (status back to the flight controller)

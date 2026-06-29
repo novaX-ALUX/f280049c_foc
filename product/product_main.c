@@ -1,13 +1,13 @@
 //#############################################################################
-// product_main.c - esc6288 product main: DroneCAN RawCommand -> esc_control -> FAST.
+// product_main.c - esc6288 product main: (DroneCAN RawCommand | RC-PWM) -> esc_arbiter -> esc_control -> FAST.
 //
 // This REPLACES the SDK lab .c (it owns main() + mainISR()). The FOC pipeline is the
 // SDK torque lab (is06_torque_control) verbatim; the only product injections are:
 //   * self-set motorVars.flagEnableSys = true (no watch-window hand-off),
 //   * an explicit HAL_enableDRV() (launchxl DRV8305 SPI enable lives inside it),
 //   * register/enable the CANA0 bridge ISR alongside the ADC ISR,
-//   * a 1 ms background tick that runs: CAN RX drain -> dronecan_on_rx -> esc_control_step
-//     -> foc_bridge -> motorVars/IdqSet_A, and dronecan_tick -> can_bridge_write.
+//   * a 1 ms background tick that runs: CAN RX drain + RC-PWM read -> esc_arbiter_step
+//     -> esc_control_step -> foc_bridge -> motorVars/IdqSet_A, and dronecan_tick -> can_bridge_write.
 //
 // Board-agnostic (drives motorVars / board.h / HAL handle); esc6288 reuses it once its
 // CAN pins / encoder / CMPSS are defined. The SDK-coupling is confined to this file; all
@@ -140,7 +140,7 @@ static foc_bridge_cfg_t    g_fbcfg;
 //! node_id falls back to BUILD_NODE_ID and the park ref starts unlearned.
 static nvparam_t           g_nvparam;
 
-static esc_command_t       g_cmd;        //!< last command from comms (valid if g_have_cmd)
+static esc_command_t       g_cmd;        //!< last command emitted by the arbiter (valid if g_have_cmd)
 static bool                g_have_cmd;
 static esc_arbiter_state_t g_arb;
 #if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)

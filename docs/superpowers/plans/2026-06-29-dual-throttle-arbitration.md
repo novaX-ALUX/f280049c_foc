@@ -1,5 +1,7 @@
 # Dual-Throttle (CAN + RC-PWM) Arbitration Implementation Plan
 
+> **Status (2026-06-29): IMPLEMENTED AND MERGED** (master `e652f55..f000dde`). This file is retained as the historical implementation plan/design record — do NOT run its unchecked TDD checklist against the current tree; the code already exists. The only remaining work is the Appendix bench-validation gate, required before enabling `ESC_ARB_CAN_PRIMARY`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a pure, host-tested command-source arbiter that fuses the existing DroneCAN throttle with the (already-wired but unused) RC-PWM throttle on `esc6288_revA`, defaulting to CAN-only so the change ships inert until bench-validated.

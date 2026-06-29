@@ -6,7 +6,7 @@ This is F280049C FOC firmware on C2000Ware MotorControl SDK 6.0, driverlib, and 
 - `boards/<board>/`: board HAL, gate-driver code, linker files, and `PORT_TODO.md`; boards are `esc6288_revA`, `launchxl_drv8305evm`, and `launchxl_3phganinv` (BOOSTXL-3PhGaNInv GaN BoosterPack).
 - `motors/`: selectable motor profiles plus `motor_select.h`.
 - `config/build_config.h`: board and motor ID definitions used by `build.sh`.
-- `src/{app,comms,encoder,common}/`: board/motor-agnostic product logic: ESC state control, prop parking, MT6701 angle processing, DroneCAN helpers, and shared DTOs.
+- `src/{app,comms,encoder,common}/`: board/motor-agnostic product logic: ESC state control, CAN+RC-PWM throttle-source arbitration (`esc_arbiter`), prop parking, MT6701 angle processing, DroneCAN helpers, and shared DTOs.
 - `docs/`: datasheets, errata, TRM, and lab-guide references.
 
 Runtime code follows three axes: hardware in `boards/`, motor parameters in `motors/`, and board-agnostic logic in `src/`. The active product target is `esc6288_revA`; the two LaunchPad boards remain as historical validation/regression paths and should not receive new feature work unless it fixes a shared regression that affects esc6288. Adding a board or motor also requires registration in `build.sh`, `config/build_config.h`, and the relevant selector.

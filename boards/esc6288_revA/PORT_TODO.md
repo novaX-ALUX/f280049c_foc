@@ -1,7 +1,7 @@
 # esc6288_revA — bring-up checklist
 
 Status: **ported from the final schematic + netlist; all build gates green** (SRC_CHECK,
-CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 10/10). The board is at fab;
+CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 11/11). The board is at fab;
 the items below are what to verify/tune once the prototype returns. Anything marked
 **[BENCH]** needs the hardware (scope/meter) to confirm.
 
@@ -45,8 +45,9 @@ header comment in `drivers/include/board.h`.
    shoot-through; then close the current loop; then spin.
 5. **Protection tests**: trip phase-C CMPSS3 OC, DC-bus CMPSS5 OV (~56 V), and the ISR software
    OC on phases A/B; confirm each forces all outputs low and latches `moduleOverCurrent`.
-6. **CAN / encoder / RC-PWM / RGB**: DroneCAN node at 1 Mbit; MT6701 angle reads; RC-PWM
-   1–2 ms maps to throttle; RGB status colors.
+6. **CAN / encoder / RC-PWM / RGB**: DroneCAN node at 1 Mbit; MT6701 angle reads; RC-PWM raw
+   capture (`RC_PWM_read`) + `esc_pwm_decode` valid window verified (runtime output stays CAN-only
+   while `ESC_ARB_EXPLICIT_CAN` ships — see the enable gate below); RGB status colors.
 
 ## Dual-throttle arbiter (CAN + RC-PWM) — enable gate **[BENCH, flight-safety]**
 The `src/app/esc_arbiter` module fuses the DroneCAN throttle with the RC-PWM throttle. It

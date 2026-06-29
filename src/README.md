@@ -1,8 +1,9 @@
 # src/ — Core Layer (hardware/motor-agnostic)
 
 > Status: **active product logic**. This tree contains the pure, host-tested code that supports the
-> esc6288 product image: control state, setpoint bridging, prop parking, MT6701 decode/tracking,
-> NTC conversion, nvparam storage format, and DroneCAN protocol helpers. SDK labs still provide the
+> esc6288 product image: control state, CAN+RC-PWM throttle-source arbitration, setpoint bridging,
+> prop parking, MT6701 decode/tracking, NTC conversion, nvparam storage format, and DroneCAN
+> protocol helpers. SDK labs still provide the
 > FAST/HAL reference ladder, but the product application is no longer an empty placeholder.
 
 This layer is the third axis of change: **core logic that does not vary with board or motor**.
@@ -10,7 +11,7 @@ Swap the board → touch only `boards/`; swap the motor → touch only `motors/`
 
 | Subdirectory | Responsibility | Source reference |
 |--------|------|----------|
-| `app/`     | ESC state control, FOC bridge, park-ref logic, nvparam storage record | custom |
+| `app/`     | CAN+RC-PWM throttle arbitration, ESC state control, FOC bridge, park-ref logic, nvparam storage record | custom |
 | `comms/`   | DroneCAN frame/protocol helpers, FIFOs, `param.GetSet` codec/registry | legacy `../esc_drv8300_foc`, pydronecan golden checks, SDK `servo_drive_with_can` |
 | `encoder/` | MT6701 SSI frame decode and angle/velocity tracking | MT6701 datasheet, SDK `absolute_encoder_boostxl_posmgr` |
 | `common/`  | Shared DTOs and NTC beta-model conversion | custom |

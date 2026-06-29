@@ -52,6 +52,10 @@ Implemented esc6288-facing software:
 - `nvparam` storage record for node-id + learned park reference, with CRC/range
   validation and host tests
 - DroneCAN `uavcan.protocol.param.GetSet` access to those persisted fields
+- CAN + RC-PWM dual-throttle arbiter (`src/app/esc_arbiter`) wired into the 1 ms
+  tick; fuses the DroneCAN and RC-PWM throttle sources but ships inert
+  (`ESC_ARB_EXPLICIT_CAN`, PWM ignored, behavior identical to CAN-only). Enable
+  gate + bench prerequisites are in `boards/esc6288_revA/PORT_TODO.md`.
 - esc6288 staged bring-up DSS scripts for rails/clock, idle/OST, ADC,
   protection, and peripherals
 
@@ -214,7 +218,7 @@ f280049c_foc/
 ├── motors/                                  # motor profiles
 ├── product/                                 # esc6288 product main
 ├── src/
-│   ├── app/                                 # pure control glue, park/ref, nvparam
+│   ├── app/                                 # pure control glue, throttle arbiter, park/ref, nvparam
 │   ├── comms/                               # pure DroneCAN protocol layers
 │   ├── common/                              # shared DTOs, NTC conversion
 │   └── encoder/                             # MT6701 pure decode/tracking
