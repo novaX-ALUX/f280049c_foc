@@ -48,6 +48,32 @@ header comment in `drivers/include/board.h`.
 6. **CAN / encoder / RC-PWM / RGB**: DroneCAN node at 1 Mbit; MT6701 angle reads; RC-PWM
    1–2 ms maps to throttle; RGB status colors.
 
+## Dual-throttle arbiter (CAN + RC-PWM) — enable gate **[BENCH, flight-safety]**
+The `src/app/esc_arbiter` module fuses the DroneCAN throttle with the RC-PWM throttle. It
+**ships inert**: `product_build_arb_cfg()` sets `policy = ESC_ARB_EXPLICIT_CAN`, so PWM is
+ignored at runtime and behavior is **timing-identical to the old CAN-only path** (the arbiter
+holds the same `seq` between fresh CAN frames, so `esc_control`'s 0.5 s watchdog still ages
+from the last real frame). Nothing below is required for the shipped image.
+
+**Do NOT flip the policy to `ESC_ARB_CAN_PRIMARY` (the CAN-primary / PWM hot-standby fallback)
+until ALL of these pass on hardware:**
+- **HARD PREREQUISITE — receiver failsafe must NOT be "hold-last".** The firmware cannot
+  detect a held/replayed stale pulse from a single PWM wire: a previously-armed-and-tracking
+  PWM that keeps replaying its last valid 1–2 ms pulse after the RC link drops will be selected
+  as the fallback when CAN is lost. This is an **inherent single-wire limitation, not a firmware
+  bug** — the PWM low-dwell arm gate + "must have tracked CAN" lockout defeat a *cold/never-armed*
+  or *divergent* stuck line, but NOT a hold-last replay of a value that was valid pre-loss.
+  Mitigation is **receiver-side**: configure the RC RX failsafe to drop signal (no pulse /
+  out-of-range) or go idle-low on link loss, and **verify it on the bench** (plan Appendix
+  step 3). Only then is the fallback meaningful.
+- The full bench gate in the implementation plan:
+  `docs/superpowers/plans/2026-06-29-dual-throttle-arbitration.md` (Appendix) — esp. step 3
+  (RX failsafe), 5–6 (tracking + conflict lockout), 7 (CAN-loss fallback only after tracking),
+  8 (stuck-PWM rejection), 9 (both-dead coast). Run current-limited, no prop first, prop last.
+- Observe arbiter state via the debugger globals `g_arb_active` / `g_arb_status_bits`
+  (`product_main.c`); `ESC_ST_SRC_PWM` is set in telemetry but **not yet serialized** in the
+  `esc.Status` frame, so it is not visible over CAN.
+
 ## [BENCH] Confirm / tune
 - **JSM6288T dead time** — datasheet (`docs/JSM6288T.pdf`) confirms a per-phase HIN/LIN 6-input
   driver that DOES have built-in anti-shoot-through protection: an interlock (HIN=LIN=H → both
