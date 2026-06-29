@@ -53,7 +53,8 @@ typedef enum {
     ESC_ST_FAILSAFE_COAST     = 1u << 1,  /* link-loss failsafe, coasting */
     ESC_ST_PARK_REF_UNLEARNED = 1u << 2,
     ESC_ST_PARK_ACTIVE        = 1u << 3,
-    ESC_ST_FAILSAFE_BRAKE     = 1u << 4   /* link-loss failsafe, active brake */
+    ESC_ST_FAILSAFE_BRAKE     = 1u << 4,  /* link-loss failsafe, active brake */
+    ESC_ST_SRC_PWM            = 1u << 5    /* RC-PWM is the active throttle source */
 } esc_status_t;
 
 /* Return code for esc_control_step(): API misuse only, never a protection state. */

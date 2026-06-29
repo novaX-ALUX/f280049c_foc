@@ -23,6 +23,7 @@
 #include "build_config.h"
 
 #include "esc_control.h"
+#include "esc_arbiter.h"
 #include "foc_bridge.h"
 #include "nvparam.h"
 #include "dronecan.h"
@@ -141,6 +142,14 @@ static nvparam_t           g_nvparam;
 
 static esc_command_t       g_cmd;        //!< last command from comms (valid if g_have_cmd)
 static bool                g_have_cmd;
+static esc_arbiter_state_t g_arb;
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+static volatile esc_src_id_t g_arb_active;      /* debugger-visible: who owns throttle */
+static volatile uint32_t     g_arb_status_bits; /* debugger-visible: esc_arb_status_t bits
+                                                 * (PWM_ACTIVE / NO_SOURCE / PWM_LOCKOUT /
+                                                 * HANDOFF) -- bench step 5/6 watch these,
+                                                 * since esc_telemetry_t only carries SRC_PWM. */
+#endif
 static uint32_t            g_now_ms;      //!< 1 ms tick counter (dronecan scheduling)
 
 //! GetNodeInfo identity so the node enumerates on ArduPilot / yakut / DroneCAN GUI.
@@ -249,6 +258,26 @@ static void product_build_esc_cfg(esc_control_cfg_t *c)
     // c->park / c->park_ref left zeroed (dormant on launchxl)
 }
 
+static void product_build_arb_cfg(esc_arbiter_cfg_t *a)
+{
+    uint16_t i;
+    uint16_t *p = (uint16_t *)a;
+    for (i = 0; i < (sizeof(*a) / sizeof(uint16_t)); i++) { p[i] = 0u; }
+
+    /* SAFE DEFAULT: CAN only. RC-PWM is ignored until the bench gate flips this to
+     * ESC_ARB_CAN_PRIMARY (see docs plan Appendix). Shipping behavior == CAN-only. */
+    a->policy              = ESC_ARB_EXPLICIT_CAN;
+    a->can_stale_s         = 0.10f;   /* ~10 missed 100 Hz RawCommands */
+    a->pwm_stale_s         = 0.06f;   /* ~3 missed 50 Hz servo pulses  */
+    a->pwm_arm_low_s       = 0.50f;   /* sustained idle before PWM may arm */
+    a->pwm_arm_throttle_eps = 0.05f;
+    a->track_tol           = 0.10f;   /* PWM within 10% of CAN counts as tracking */
+    a->track_required_s    = 0.50f;
+    a->handoff_slew_per_s  = 4.0f;    /* full-scale handoff over ~0.25 s */
+    a->pwm.us_min = 1000.0f; a->pwm.us_max = 2000.0f;
+    a->pwm.us_valid_min = 900.0f; a->pwm.us_valid_max = 2100.0f;
+}
+
 //! \brief Initialize the product layer (control state machine, protocol core, CAN bridge).
 static void product_init(void)
 {
@@ -272,6 +301,12 @@ static void product_init(void)
 
     product_build_esc_cfg(&cfg);
     esc_control_init(&g_esc, &cfg, product_park_ref_load, NULL);
+
+    {
+        esc_arbiter_cfg_t acfg;
+        product_build_arb_cfg(&acfg);
+        esc_arbiter_init(&g_arb, &acfg);
+    }
 
     for(i = 0; i < 16u; i++) { dncfg.unique_id[i] = 0u; }
     product_read_unique_id(dncfg.unique_id);
@@ -400,15 +435,40 @@ static void product_tick_1ms(void)
 
     g_now_ms++;
 
-    // 1) drain received CAN frames into the protocol core; keep the latest command for us
-    while(can_bridge_read(&rxf))
+    // 1) drain CAN frames -> build the CAN source sample (last command addressed to us)
     {
-        dronecan_on_rx(&g_dn, &rxf, &rr);
-        if(rr.command_updated)
+        esc_src_sample_t can_s = {0};
+        esc_src_sample_t pwm_s = {0};
+        esc_arbiter_result_t ar;
+
+        while (can_bridge_read(&rxf))
         {
-            g_cmd = rr.command;
-            g_have_cmd = true;
+            dronecan_on_rx(&g_dn, &rxf, &rr);
+            if (rr.command_updated)
+            {
+                can_s.fresh    = true;
+                can_s.valid    = true;
+                can_s.throttle = rr.command.throttle;
+                can_s.arm_req  = rr.command.arm;
+            }
         }
+
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+        // RC-PWM source: poll eCAP1, decode the raw high-time to a normalized sample.
+        {
+            rc_pwm_sample_t raw;
+            RC_PWM_read(&raw);
+            pwm_s = esc_pwm_decode(&g_arb.cfg.pwm, raw.fresh, raw.overflow, raw.width_us);
+        }
+#endif
+
+        esc_arbiter_step(&g_arb, &can_s, &pwm_s, 0.001f, &ar);
+        g_cmd      = ar.cmd;          // valid only if ar.have_cmd
+        g_have_cmd = ar.have_cmd;
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+        g_arb_active      = ar.active;       // debugger / future telemetry
+        g_arb_status_bits = ar.status_bits;  // PWM_ACTIVE / NO_SOURCE / PWM_LOCKOUT / HANDOFF
+#endif
     }
 
     // 2) assemble feedback (gate_fault: only boards with a gate-fault input set it -- read as
@@ -454,7 +514,9 @@ static void product_tick_1ms(void)
 
     // 3) run the control state machine (NULL command this tick if nothing fresh arrived)
     (void)esc_control_step(&g_esc, g_have_cmd ? &g_cmd : NULL, &fb, 0.001f, &out, &tel);
-    g_have_cmd = false;
+#if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+    if (g_arb_active == ESC_SRC_PWM) { tel.status_bits |= (uint32_t)ESC_ST_SRC_PWM; }
+#endif
 
     // 4) map the control output to a FAST setpoint and apply it
     foc_bridge_map_output(&g_fbcfg, &out, &sp);
