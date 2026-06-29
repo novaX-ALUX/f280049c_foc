@@ -299,7 +299,7 @@ static void product_init(void)
 #if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
     // Bring up the esc6288 board-side aux interfaces (after HAL setup; before the main
     // loop). RC_PWM_init re-enables the eCAP1 clock the shared HAL leaves off. These read
-    // APIs (RC_PWM_getThrottle / MT6701_SSI_read / RGB_setColor) are wired into the control
+    // APIs (RC_PWM_read / MT6701_SSI_read / RGB_setColor) are wired into the control
     // path during bench bring-up.
     RC_PWM_init();
     MT6701_SSI_init();
