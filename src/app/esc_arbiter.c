@@ -187,9 +187,9 @@ void esc_arbiter_step(esc_arbiter_state_t *st,
             (cand == ESC_SRC_PWM && pwm->fresh && pwm->valid);
         emit(st, cand, target, arm, cand_fresh, dt_s, res);
 
-        /* Report a PWM that is healthy+armed but not eligible to take over (would-be
-         * fallback denied because it never tracked CAN). Only meaningful under CAN_PRIMARY:
-         * under EXPLICIT_PWM tracking is not a gate, so this bit would mislead at bench. */
+        /* Report a PWM that is healthy+armed but not eligible (track_ok false): either it
+         * never tracked CAN, or it previously tracked but then dropped out or diverged and
+         * has not re-established consensus. */
         if (c->policy == ESC_ARB_CAN_PRIMARY &&
             st->pwm.healthy && st->pwm.armed && !st->pwm.track_ok) {
             res->status_bits |= (uint32_t)ESC_ARB_ST_PWM_LOCKOUT;

@@ -242,7 +242,7 @@ int main(void)
                 if (r.active == ESC_SRC_PWM) { fellback = true; break; }
             }
             CHECK(!fellback);                                    /* locked out */
-            CHECK(!r.have_cmd);                                  /* both effectively gone */
+            CHECK(!r.have_cmd);                                  /* CAN stale + PWM locked out (track_ok false) -> no command */
         }
 
         /* (c) Both die AFTER being armed and running -> no command (the dangerous case). */
@@ -271,6 +271,8 @@ int main(void)
         {
             esc_arbiter_state_t st; esc_arbiter_init(&st, &ac);
             esc_src_sample_t can = {0}, pwm = {0};
+            esc_src_sample_t cannone = {0};
+            float last;
             int i;
             pwm.fresh = pwm.valid = true; pwm.throttle = 0.0f;
             can.fresh = can.valid = true; can.throttle = 0.0f; can.arm_req = true;
@@ -278,14 +280,21 @@ int main(void)
             can.throttle = 0.50f; pwm.throttle = 0.45f;
             for (i = 0; i < 400; i++) { esc_arbiter_step(&st, &can, &pwm, dt, &r); }
             /* CAN drops -> fall to PWM */
-            esc_src_sample_t cannone = {0};
             for (i = 0; i < 200 && r.active != ESC_SRC_PWM; i++) {
                 esc_arbiter_step(&st, &cannone, &pwm, dt, &r);
             }
             CHECK(r.active == ESC_SRC_PWM);
-            /* CAN returns -> must reclaim immediately (it is primary when healthy) */
+            last = r.cmd.throttle;
+            /* CAN returns -> must reclaim with bounded slew across the PWM->CAN handback */
             can.throttle = 0.50f;
-            esc_arbiter_step(&st, &can, &pwm, dt, &r);
+            for (i = 0; i < 200; i++) {
+                esc_arbiter_step(&st, &can, &pwm, dt, &r);
+                if (r.have_cmd) {
+                    float jump = fabsf(r.cmd.throttle - last);
+                    CHECK(jump <= ac.handoff_slew_per_s * dt + 1e-5f);
+                    last = r.cmd.throttle;
+                }
+            }
             CHECK(r.active == ESC_SRC_CAN);
         }
 
@@ -348,6 +357,18 @@ int main(void)
                 }
             }
             CHECK(reached);                                      /* slewed all the way to PWM */
+        }
+
+        /* NONE->source: first acquisition from NONE is not slewed (blend only applies
+         *     to source-to-source switches; active==NONE does not trigger blending). */
+        {
+            esc_arbiter_state_t st;
+            esc_src_sample_t can = {0};
+            esc_arbiter_init(&st, &ac);  /* policy = ESC_ARB_CAN_PRIMARY */
+            can.fresh = true; can.valid = true; can.throttle = 0.5f; can.arm_req = true;
+            esc_arbiter_step(&st, &can, &(esc_src_sample_t){0}, dt, &r);
+            CHECK(r.have_cmd);
+            CHECK_NEAR(r.cmd.throttle, 0.5f, 1e-4f);
         }
     }
 

@@ -456,9 +456,9 @@ static void product_tick_1ms(void)
 #if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
         // RC-PWM source: poll eCAP1, decode the raw high-time to a normalized sample.
         {
-            rc_pwm_sample_t raw;
-            RC_PWM_read(&raw);
-            pwm_s = esc_pwm_decode(&g_arb.cfg.pwm, raw.fresh, raw.overflow, raw.width_us);
+            rc_pwm_sample_t pwm_raw;
+            RC_PWM_read(&pwm_raw);
+            pwm_s = esc_pwm_decode(&g_arb.cfg.pwm, pwm_raw.fresh, pwm_raw.overflow, pwm_raw.width_us);
         }
 #endif
 
@@ -512,10 +512,10 @@ static void product_tick_1ms(void)
 #endif
     foc_bridge_map_feedback(&raw, &fb);
 
-    // 3) run the control state machine (NULL command this tick if nothing fresh arrived)
+    // 3) run the control state machine (NULL only when no source is healthy; a held command re-emits the same seq so esc_control's watchdog ages from the last real frame)
     (void)esc_control_step(&g_esc, g_have_cmd ? &g_cmd : NULL, &fb, 0.001f, &out, &tel);
 #if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
-    if (g_arb_active == ESC_SRC_PWM) { tel.status_bits |= (uint32_t)ESC_ST_SRC_PWM; }
+    if (g_arb_active == ESC_SRC_PWM) { tel.status_bits |= (uint32_t)ESC_ST_SRC_PWM; } // forward hook: ESC_ST_SRC_PWM not yet serialized in esc.Status; observe via g_arb_active/g_arb_status_bits in the debugger
 #endif
 
     // 4) map the control output to a FAST setpoint and apply it
