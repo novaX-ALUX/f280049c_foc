@@ -2,9 +2,10 @@
 
 Status: **ported from the final schematic + netlist; all build gates green** (SRC_CHECK,
 CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 11/11). **First prototype on the
-bench 2026-06-30** — bring-up stages 1/2/3/5/6 passing (encoder + CAN-to-flight-controller + RGB all
-verified; one board defect found + bodged — see the 2026-06-30 log below). Stage 4 (first spin) and the
-real OC/OV injection remain; the items below are what to verify/tune. Anything marked
+bench 2026-06-30** — bring-up stages 1/2/3/4/5/6 passing, incl. **first spin** (sustained ~4 krpm,
+sensorless FOC, zero faults). Encoder + CAN-to-flight-controller + RGB all verified; one board defect
+found + bodged (see the 2026-06-30 log below). The hardware OC path was confirmed end-to-end; OV
+injection and motor-coupled tuning remain — the items below are what to verify/tune. Anything marked
 **[BENCH]** needs the hardware (scope/meter) to confirm.
 
 Hardware: F280049CPMSR (64-pin PM), gate driver **U12 = JSM6288T** (6 independent inputs,
@@ -43,6 +44,14 @@ header comment in `drivers/include/board.h`.
 - **3 ADC front-end — PASS, after a hardware fix.** Initially every channel read rail/garbage; root cause was the
   **VREFLO-not-grounded** board defect (see Rev-B note). A bodge wire VREFLO(pin 17)→AGND restored VREFHI to 3.3 V and
   s3 then read currents ~2040 (mid-rail) and `VdcBus_V=12.00`. **NTC still reads open (raw=0)** — separate, low-priority.
+- **4 first spin — PASS.** `tools/flash/esc6288_revA/run_is06_esc6288.js` (is06 torque lab) at 12 V / 5 A, no
+  prop. iq=0 scope mode first: gates un-tripped (OST 0/0/0), half-bridges switched cleanly, zero current, no
+  fault, dead-band clean on the scope. Then iq=1.0 A with a continuous flick window: a hand-flick bootstrapped
+  the sensorless FAST estimator and the rotor **held ~4 krpm (≈466 Hz elec) for 12 s, zero faults during the
+  spin**. Validates the full chain: power stage → current sense (on the VREFLO bodge) → current loop → FAST →
+  dead-band. NOTE the sensorless cold-start needs the flick (Iq alone ≤0.5 A did not break standstill), and a
+  debugger gate-cut of the spinning motor latches `moduleOverCurrent` (faultUse=16) on the transient — BENIGN
+  (the hardware OC path firing end-to-end, safe-off achieved). Motor-coupled `dir`/`zero_offset` tuning is next.
 - **5 protection — PASS (comparator-level).** CMPSS3/CMPSS5 latch baseline clean; `force=tz` (software TZFRC OST)
   confirmed; `s5b_route.js` **PASS** — both high comparators trip when their DAC is lowered below the resting signal
   (bus-OV CMPSS5 @ ADCINA6 ~479; phase-C OC CMPSS3 @ ADCINC2 ~2034), DAC restored after. The CMPSS→X-BAR→OST

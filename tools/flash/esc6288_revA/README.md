@@ -6,8 +6,9 @@ prints explicit pass / stop conditions so bring-up is "follow the steps", not "i
 
 > **2026-06-30:** s1/s2/s3/s5/s5b/s6 have run on the first prototype — all PASS (one board defect found
 > + bodged, see the VREFLO note in `PORT_TODO.md`). s6: encoder MT6701, CAN-to-flight-controller, and the
-> RGB boot sweep all verified. s4 (first spin) and `inject=oc/ov` (real OC/OV) are not yet run. Expect to
-> keep tuning thresholds/timing at the bench.
+> RGB boot sweep all verified. **s4 (first spin) done** — sustained ~4 krpm, zero faults (`run_is06_esc6288.js`).
+> The hardware OC path was confirmed end-to-end (gate-cut transient); OV injection and motor-coupled tuning
+> remain. Expect to keep tuning thresholds/timing at the bench.
 
 ## Two hard safety rules (enforced in every script)
 
@@ -79,12 +80,18 @@ There is also a gated **RGB self-test**: build the product with `EXTRA_DEFINES="
 (the `#ifdef` block after `RGB_init()` in `product/product_main.c`) and watch RGB1 sweep R→G→B→white→off
 at boot — verifies the GPIO12→SN74LVC1T45→WS2812 path. Off by default.
 
-## Stage 4 (first spin) — deliberately NOT scripted yet
+## Stage 4 (first spin) — `run_is06_esc6288.js` (DONE 2026-06-30)
 
-The PORT_TODO step 4 (dead-band/short-pulse → close current loop → first spin) is the step with
-the most live judgement and is the only one that actually un-trips the gates into switching. It is
-**deferred to a separate first-spin script** written after stages 1/2/3/5/6 have run and the scope
-conditions are known. Manual stop conditions to honour at first spin:
+`run_is06_esc6288.js <ccxml> <is06_torque_control.out> [iq_A] [flick_s]` is the first-spin runner
+(is06 torque lab; esc6288 OST safe-off, no EN_GATE). It un-trips the gates and is the only script that
+drives switching, so it stays guarded: `iq_A=0` is SCOPE MODE (arm, half-bridges switch at ~0 A — scope
+the dead-band before any torque); `iq_A>0` commands a small torque (≤1.0 A guard); `flick_s>0` runs the
+FOC continuously so a hand-flick can bootstrap the sensorless FAST estimator from standstill. **Validated
+2026-06-30:** scope mode clean, then `iq_A=1.0 flick_s=12` held ~4 krpm for 12 s with zero faults (see
+the PORT_TODO bench log). Stop note: a debugger gate-cut of the spinning motor latches `faultUse=16`
+(moduleOverCurrent) on the transient — benign (OC protection firing; safe-off achieved).
+
+Manual stop conditions to honour at first spin:
 
 - Zero/low bus first; current-limited supply; scope half-bridge Vds for shoot-through before raising bus.
 - Confirm the MCU dead-band (200 ns, `HAL_PWM_DBxED_CNT`) + the JSM6288T's own ~200 ns DT give clean
