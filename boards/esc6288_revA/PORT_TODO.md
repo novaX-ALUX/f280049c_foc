@@ -67,6 +67,29 @@ header comment in `drivers/include/board.h`.
   **RC-PWM:** no signal connected.
 - **Bench caveat:** the hand-wired LaunchPad-XDS110 JTAG link was chronically marginal (intermittent `-2131`); see
   the JTAG note in `tools/flash/esc6288_revA/README.md`.
+- **SDK lab walk-through (is01→is07), 2026-06-30:** is01 HAL (`check_is01_esc6288.js`) PASS — parked safe, raw ADC
+  IA/IB/IC≈2050, Udc≈479. is02 offset cal (`cal_is02_esc6288.js`) PASS — current offsets matched to ~0.8 A across
+  phases, Vbias≈0.49 V. **is03 SKIPPED** (V/f → ~100 A on the 40 mΩ 4116; see the BENCH note). is04 signal-chain
+  (`run_is04_esc6288.js`) — current loop + Clarke/Park confirmed (Iq tracks, Id≈0, no fault); open-loop forced spin
+  did not break standstill (see self-start note). is05 not run (4116 params are back-filled, not re-ID'd). is06 PASS
+  (first spin, flick). is07 (`run_is07_esc6288.js`) speed-loop self-start does NOT cold-start — see below.
+
+### Sensorless cold-start (self-start from standstill) — [FOLLOW-UP, not solved]
+The 4116 (≈0.012 V/Hz surface-PM outrunner) does **not** reliably self-start under pure sensorless FAST: is06
+torque needs a hand-flick; is07 speed-loop armed directly from standstill oscillates (`speed_Hz` swings ±, the
+speed PI pins Iq at its cap) and never locks. **Codex analysis (2026-06-30) — root cause is NOT
+`USER_FORCE_ANGLE_FREQ_Hz` (both this project and the legacy esc_drv8300 use 1.0 Hz).** The gap is a missing
+deterministic rotor **align + open-loop I/f ramp** before the speed loop closes: at standstill a 0.012 V/Hz motor
+has no observable BEMF, so FAST cannot lock until the rotor is already moving. The legacy MotorWare esc_drv8300
+project never self-started the 4116 from `SpeedRef` either — its first spin was torque mode (`IqRef` + a ~1.5 A
+breakaway floor + force-angle only for direction), and speed control came after torque validation.
+**Plan (a dedicated startup-tuning task):** (1) Id ALIGN — `IdqSet_A.value[0]=2–3 A`, Iq=0, `speedRef=0`,
+`accelerationMax=0`, arm, dwell 1–2 s (rotor pulls to a known angle); (2) slow open-loop **I/f ramp** —
+`accelerationMax≈2 Hz/s`, ramp `speedRef` up; (3) hand over to FAST only once `speed_Hz` coherently tracks; run
+**continuously** (no halt-sampling, which desyncs FAST); keep `FORCE_ANGLE_FREQ=1.0`, Rs-recalc/RsOnLine off,
+Iq capped. Port the launchxl I/f-characterization tooling (`tools/flash/drv8305evm/run_if_rampB.js`,
+`run_draghi.js`, `run_if_rec.js` + their bench-fork in-ISR recorder) to esc6288 (OST safe-off, no EN_GATE).
+Until then the bench demonstrates spin via `run_is06_esc6288.js` (flick bootstrap).
 
 1. **Rails + clock**: power 3V3/5V/12V only (no motor). Confirm **SYSCLK = 100 MHz** (toggle a
    GPIO at a known divide, scope it) — proves `IMULT(20)`. If it reads 50 MHz the resonator
