@@ -340,6 +340,20 @@ static void product_init(void)
     MT6701_SSI_init();
     RGB_init();
 
+#ifdef RGB_SELFTEST
+    /* [BENCH] one-shot WS2812 color sweep so the GPIO12 -> SN74LVC1T45 -> RGB1 path can be eyeballed.
+     * NOT in the default image: build with EXTRA_DEFINES="--define=RGB_SELFTEST". Runs once during
+     * init while the gates are still held off (OST, disarmed); ~5 s total. */
+    {
+        const uint16_t sw[5][3] = { {255u,0u,0u}, {0u,255u,0u}, {0u,0u,255u}, {255u,255u,255u}, {0u,0u,0u} };
+        uint16_t ci, di;
+        for (ci = 0u; ci < 5u; ci++) {
+            RGB_setColor((uint8_t)sw[ci][0], (uint8_t)sw[ci][1], (uint8_t)sw[ci][2]);
+            for (di = 0u; di < 40u; di++) { SysCtl_delay(500000U); }   /* ~1 s hold per color */
+        }
+    }
+#endif
+
     // MT6701 angle-processing config. Bench-pending tuning: zero_offset (mechanical zero),
     // dir (rotation sign vs the motor), and the glitch/stale thresholds. auto_park stays
     // DISABLED (product_build_esc_cfg) until the encoder is validated on the bench with a prop.

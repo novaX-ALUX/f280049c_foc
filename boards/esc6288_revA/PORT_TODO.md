@@ -1,8 +1,10 @@
 # esc6288_revA — bring-up checklist
 
 Status: **ported from the final schematic + netlist; all build gates green** (SRC_CHECK,
-CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 11/11). The board is at fab;
-the items below are what to verify/tune once the prototype returns. Anything marked
+CAN_CHECK, PRODUCT_CHECK, PRODUCT, `LAB=all` 12/12, host tests 11/11). **First prototype on the
+bench 2026-06-30** — bring-up stages 1/2/3/5/6 passing (encoder + CAN-to-flight-controller + RGB all
+verified; one board defect found + bodged — see the 2026-06-30 log below). Stage 4 (first spin) and the
+real OC/OV injection remain; the items below are what to verify/tune. Anything marked
 **[BENCH]** needs the hardware (scope/meter) to confirm.
 
 Hardware: F280049CPMSR (64-pin PM), gate driver **U12 = JSM6288T** (6 independent inputs,
@@ -34,13 +36,38 @@ header comment in `drivers/include/board.h`.
   eCAP1 (`rc_pwm.c`), MT6701 SSI on SPIA (`mt6701_ssi.c`), WS2812 RGB on GPIO12 (`rgb_led.c`).
 
 ## Bench bring-up — do in order, gate driver kept off (forced TZ) until each step passes
+
+### Bench log — 2026-06-30 (first prototype; XDS110 over a CC1352 LaunchPad, USB + 12 V, no motor)
+- **1 rails/clock — PASS.** SYSCLK 100 MHz confirmed (tick/wall ratio 1.005); OST 1/1/1 at boot, not armed.
+- **2 idle/OST — PASS (observe).** OST 1/1/1 held through startup + offset-cal (cal does **not** un-trip); never self-armed.
+- **3 ADC front-end — PASS, after a hardware fix.** Initially every channel read rail/garbage; root cause was the
+  **VREFLO-not-grounded** board defect (see Rev-B note). A bodge wire VREFLO(pin 17)→AGND restored VREFHI to 3.3 V and
+  s3 then read currents ~2040 (mid-rail) and `VdcBus_V=12.00`. **NTC still reads open (raw=0)** — separate, low-priority.
+- **5 protection — PASS (comparator-level).** CMPSS3/CMPSS5 latch baseline clean; `force=tz` (software TZFRC OST)
+  confirmed; `s5b_route.js` **PASS** — both high comparators trip when their DAC is lowered below the resting signal
+  (bus-OV CMPSS5 @ ADCINA6 ~479; phase-C OC CMPSS3 @ ADCINC2 ~2034), DAC restored after. The CMPSS→X-BAR→OST
+  end-to-end trip (`inject=oc/ov`, real OC/OV) is still **PENDING** — defer to first-spin.
+- **6 peripherals — PARTIAL.** **Encoder MT6701 — PASS:** SPIA + HT0104 path confirmed (`g_enc.valid=1`,
+  clean SSI decode, `position_rev` tracks the magnet — see the MT6701 item). **CAN — PASS (against an ArduPilot/AF-H7E flight
+  controller).** Bit timing confirmed 1.000 Mbit (CAN_BTR); with the FC on the bus the esc6288 completed **DNA
+  (`g_dn.node_id=124`)**, TX drains (`s_tx` head==tail, `in_flight=0`, `TEC=0`, no `LEC` error), and RX advances
+  (receiving FC frames). NOTE: a bare USB-CAN adapter that is merely enumerated does **not** ACK (it gave
+  `LEC=ACK error` / `TEC=128` / error-passive until a real ACKing node was attached) — use the FC (or bring the
+  adapter on-bus in normal mode) when bench-testing CAN. **RGB — PASS:** GPIO12→U6→WS2812
+  path verified via the `RGB_SELFTEST` boot sweep (R→G→B→white→off all correct at 6/6/1/12 timing).
+  **RC-PWM:** no signal connected.
+- **Bench caveat:** the hand-wired LaunchPad-XDS110 JTAG link was chronically marginal (intermittent `-2131`); see
+  the JTAG note in `tools/flash/esc6288_revA/README.md`.
+
 1. **Rails + clock**: power 3V3/5V/12V only (no motor). Confirm **SYSCLK = 100 MHz** (toggle a
    GPIO at a known divide, scope it) — proves `IMULT(20)`. If it reads 50 MHz the resonator
    assumption is wrong.
 2. **Idle outputs**: verify EPWM1/2/3 outputs idle LOW and a forced OST holds them low through
    offset-cal; confirm `HAL_enablePWM` is the only thing that un-trips.
 3. **ADC offsets**: PWM idle → all 3 currents read ~1.65 V (~count 2048); Udc tracks the bus
-   through the 31.1× divider (apply a known bench voltage, check the reported V).
+   through the 31.1× divider (apply a known bench voltage, check the reported V). *If all channels
+   read rail/garbage with the bus on, suspect the ADC reference first — see the VREFLO-not-grounded
+   rev-A defect under "Rev-B hardware note".*
 4. **[BENCH] Dead-band / short-pulse** at low bus before spinning; watch the half-bridge Vds for
    shoot-through; then close the current loop; then spin.
 5. **Protection tests**: trip phase-C CMPSS3 OC, DC-bus CMPSS5 OV (~56 V), and the ISR software
@@ -93,8 +120,8 @@ until ALL of these pass on hardware:**
 - **OC thresholds** — product `oc_set_A = 30` and `ESC6288_ISR_OC_A = 60` are conservative
   bench values; raise toward the motor/shunt rating after validation.
 - **Bus nominal / UV** — currently 48 V nominal, UV 18 V (bench-friendly); raise UV for flight.
-- **MT6701 SSI** (`mt6701_ssi.c`) — **full 24-bit read + CRC; SSI protocol bench-confirmed, esc6288
-  on-board path pending.** Per datasheet `docs/MT6701CT-STD.PDF` sec 6.8 (and the encoder
+- **MT6701 SSI** (`mt6701_ssi.c`) — **full 24-bit read + CRC; SSI protocol and the esc6288 SPIA + HT0104
+  path both bench-confirmed (2026-06-30).** Per datasheet `docs/MT6701CT-STD.PDF` sec 6.8 (and the encoder
   daughterboard schematic `ef_encoder_mt6701.{NET,pdf}`): **POL1PHA0**; the 24-bit frame (14-bit
   angle + 4-bit Mg status + 6-bit CRC, poly X^6+X+1) is clocked as two 16-bit words inside one
   **manual-CSN** window (GPIO11 re-muxed from SPISTE to GPIO). **Bench finding (2026-06, LaunchXL
@@ -106,24 +133,27 @@ until ALL of these pass on hardware:**
   `MT6701_SSI_read()` returns *usable* = CRC ok & field normal & no loss-of-track; the product
   bridges it through `mt6701_update()` → `foc_raw_feedback_t.enc_*` → `esc_feedback_t`.
   **Confirmed:** SSI mode (part responds in SSI, not I²C), POL1PHA0, manual-CSN timing, and the
-  1-bit frame alignment all read valid live angle. **Remaining [BENCH]:** (1) re-confirm on the
-  esc6288 **SPIA + HT0104** path (level shifter, different SPI instance) with
-  `tools/flash/esc6288_revA/s6_peripherals.js` — expect `g_enc.valid=1` and `position_rev` tracking
-  the magnet; (2) tune `dir` / `zero_offset_counts` to the motor.
+  1-bit frame alignment all read valid live angle. **(1) esc6288 SPIA + HT0104 path — CONFIRMED on the
+  bench 2026-06-30:** s6 read `g_enc.valid=1 stale=0 glitch=0`, and a breakpoint in `MT6701_SSI_read`
+  showed a clean decode (`crc_ok=1 field_ok=1 track_ok=1`, e.g. angle 7137); `position_rev` tracked a
+  hand-rotated magnet (0.13 → 0.62 rev). **Remaining [BENCH]:** (2) tune `dir` / `zero_offset_counts`
+  to the motor (needs the motor coupled).
 - **`auto_park` status** — **disabled by default in code, on every board** (`auto_park_enable=false`
   in `product_build_esc_cfg`, `product/product_main.c`; the esc6288 `#if` block only sets protection
-  thresholds and does NOT re-enable it). Encoder SSI read is now **protocol-confirmed** (see MT6701
-  above), so that precondition has advanced; remaining gates before flipping it on for esc6288:
-  (a) re-confirm the encoder on the esc6288 SPIA + HT0104 path, (b) tune `dir` / `zero_offset_counts`
-  and confirm the learned park reference, (c) a powered closed-loop **prop-park** bench run. Keep it
+  thresholds and does NOT re-enable it). The encoder is now **bench-confirmed on the esc6288 SPIA + HT0104
+  path** (see MT6701 above), so that precondition is met; remaining gates before flipping it on for esc6288:
+  (a) tune `dir` / `zero_offset_counts` and confirm the learned park reference, (b) a powered closed-loop
+  **prop-park** bench run (needs the motor coupled). Keep it
   `false` until all three pass.
 - **RGB WS2812 timing** (`rgb_led.c`) — **bench-tuned on the LaunchXL GPIO0 rig (2026-06); esc6288
-  GPIO12 path pending.** The original `WS_*_LOOPS` (18/14/7/20) were ~3x too long — even T0H put the
-  '0' high pulse past the WS2812 0→1 threshold, so every bit read '1' (`0xFFFFFF` = stuck white,
-  never off). Retuned to **6/6/1/12**, which renders R/G/B/white/off correctly on the bench. T0H
-  margin is tight (T0H=3 still white, T0H=1 correct). **[BENCH]** re-confirm on the esc6288 GPIO12 →
-  SN74LVC1T45 path (the buffer sharpens edges vs the direct GPIO0 drive) with a scope or a visual
-  color sweep, and nudge `WS_*_LOOPS` if needed.
+  GPIO12 → SN74LVC1T45 path CONFIRMED on the bench 2026-06-30.** The original `WS_*_LOOPS` (18/14/7/20)
+  were ~3x too long — even T0H put the '0' high pulse past the WS2812 0→1 threshold, so every bit read
+  '1' (`0xFFFFFF` = stuck white, never off). Retuned to **6/6/1/12**, which renders R/G/B/white/off
+  correctly. T0H margin is tight (T0H=3 still white, T0H=1 correct). **Bench check:** the product does
+  not drive status colors yet (deferred), so the path was verified with a one-shot color sweep — build
+  the product with `EXTRA_DEFINES="--define=RGB_SELFTEST"` (the gated block after `RGB_init()` in
+  `product_main.c`) and watch RGB1 cycle R→G→B→white→off at boot; the 6/6/1/12 timing rendered all five
+  correctly on the esc6288 GPIO12→U6 path. **Remaining:** wire RGB status colors into the product loop.
 - **NTC → °C** — **implemented; bench-pending calibration.** The NCP18XH103 (ADCINC3 → ADCC SOC2)
   is converted by the pure, host-tested `ntc_counts_to_celsius()` (`src/common/ntc.c`, beta model)
   using the board divider in `board.h` (3V3 — NTC — [ADC] — R14 10k — GND, so NTC **high-side**).
@@ -138,6 +168,22 @@ The phase-A and phase-B current-sense op-amp outputs land on **ADCIN A0/B15/C15 
 have **no CMPSS comparator** on F28004x — so only phase C and the DC bus get hardware
 cycle-by-cycle trips. This rev relies on software OC for A/B by design (user-approved). For a
 rev B, route the IA/IB sense onto CMPSS-capable pads (e.g. B2/A4) to restore 3-phase hardware OC.
+
+### VREFLO not grounded — ADC reference dead (rev-A bodge applied; rev-B must fix in layout)
+**Bench finding (2026-06-30, first prototype):** every ADC channel read garbage — currents pinned to
+rail (4095/0, unstable run-to-run), `Udc_raw=0` and `VdcBus_V=0` with 12 V on the bus, `NTC=0`.
+Root cause is a **board defect, not firmware**: the MCU **VREFLO (pin 17, VREFLOA/B/C) is not tied to
+analog ground** — it floats at ~1.32 V and drags VREFHI (pin 16) to the same ~1.32 V, so the ADC
+reference span (VREFHI−VREFLO) collapses to ≈0 and every conversion is meaningless. VDDA measured a
+healthy 3.3 V; the front-end (INA181 outputs at 1.65 V, the U9 LMV321 1.65 V buffer, the Udc divider)
+all metered correct, and the firmware VREF setup is the stock SDK internal-3.3 V idiom (verbatim from
+`solutions/boostxl_drv8320rs/f28004x/.../hal.c`), so nothing is configurable away. Confirmed by the
+fix: a **bodge wire from pin 17 (VREFLO) to AGND** restored VREFHI to 3.3 V and s3 immediately read
+currents ~2040 (mid-rail) and `VdcBus_V=12.00`. **Rev-A:** keep the bodge solid — all bring-up depends
+on it. **Rev-B:** tie VREFLOA/B/C directly to AGND in the schematic/layout — per the netlist
+(`esc6288_revA.NET`) C16/C17 are VREFHI↔VREFLO decoupling caps (nets NetC16-2 / NetC16-1) and the
+VREFLO net has **no** DC tie to AGND/VSSA, which is the missing connection. Diagnosis lives in the s3
+stage (`tools/flash/esc6288_revA`).
 
 ## Parameter persistence (storage format done; Flash erase/program deferred)
 The non-volatile record (DroneCAN node-id, learned park-ref valid flag + target angle) has a
