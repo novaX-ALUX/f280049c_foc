@@ -84,7 +84,7 @@ flux≈0.0128 V/Hz**.
 - **Rs mystery resolved (Codex, verdict B):** the legacy profile `0.0403` was the **LINE-LINE** value (the MotorWare
   pu→Ω recipe `Rs_pu/2^30 × Vfs/Ifs × 2^(30−qFmt)` = 0.0401 = bench line-line 42–43 mΩ), NOT the phase-to-neutral
   the FOC model wants. Both MotorWare and SDK6 FAST use phase-to-neutral; SDK6's direct getter is correct.
-  `motors/am_4116_kva.h` Rs corrected `0.0403 → 0.0213` (bench line-line/2).
+  `motors/am_4116_kv450.h` Rs corrected `0.0403 → 0.0213` (bench line-line/2).
 - **Ls corrected `33.6 → 23.5 µH`** (esc6288 ID median; old 33.6 was the same suspect recipe).
 - **Open — Kelvin current-scale check:** ID Rs (0.0164) and Ls (23.5) both sit ~25–30 % below the old values while
   flux matches; this is consistent with either a mild ~1.3× current over-read (→ true Ls ~30 µH) or the old recipe
@@ -258,10 +258,10 @@ effect only after a restart (RestartNode is intentionally not implemented).
 
 ## Build / verify
 ```bash
-BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1     bash build.sh   # pure src/ modules
+BOARD=esc6288_revA MOTOR=am_4116_kv450 SRC_CHECK=1     bash build.sh   # pure src/ modules
 BOARD=esc6288_revA                   CAN_CHECK=1     bash build.sh   # CAN bridge + comms
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT_CHECK=1 bash build.sh   # product main + foc_bridge
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1       bash build.sh   # full product link
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT_CHECK=1 bash build.sh   # product main + foc_bridge
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1       bash build.sh   # full product link
 BOARD=esc6288_revA LAB=all bash build.sh                              # 12-lab regression
 bash tools/test/run.sh                                               # host tests (incl. src/ purity)
 ```

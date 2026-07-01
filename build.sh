@@ -2,7 +2,7 @@
 # Parameterized build: select board (BOARD) x motor (MOTOR) x lab/app (LAB)
 #   BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh
 #   BOARD=launchxl_drv8305evm LAB=all       bash build.sh   # smoke-build every single-motor lab + summary
-#   BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1 bash build.sh  # cross-compile src/ product modules only
+#   BOARD=esc6288_revA MOTOR=am_4116_kv450 SRC_CHECK=1 bash build.sh  # cross-compile src/ product modules only
 # Board-level HAL/drivers/linker come from boards/$BOARD/; FOC libraries + lab main come from the SDK.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -57,7 +57,7 @@ fi
 # Motor selection: MOTOR name -> BUILD_MOTOR_ID (must match config/build_config.h + motors/motor_select.h)
 case "$MOTOR" in
   motor_template) MOTOR_ID=1 ;;
-  am_4116_kva)    MOTOR_ID=2 ;;
+  am_4116_kv450)    MOTOR_ID=2 ;;
   am_4116_kvb)    MOTOR_ID=3 ;;
   am_6212)        MOTOR_ID=4 ;;
   am_6215)        MOTOR_ID=5 ;;
@@ -132,7 +132,7 @@ esac
 
 # Optional extra compiler flags appended verbatim, for opting into gated build switches without
 # editing this file, e.g. enable the esc6288 speed-mode default:
-#   EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
+#   EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh
 DEFINES="$DEFINES ${EXTRA_DEFINES:-}"
 
 # --- SRC_CHECK=1: cross-compile ONLY the src/ product modules (no link), as a 0-warning gate. ---

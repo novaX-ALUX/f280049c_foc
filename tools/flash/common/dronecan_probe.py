@@ -10,7 +10,7 @@ prefer to bring the link up yourself.
 
 Prereqs:
   * Target running product.out built with a STATIC node id (no DNA allocator on a bare
-    adapter bus): BOARD=launchxl_drv8305evm MOTOR=am_4116_kva NODE_ID=25 PRODUCT=1 bash build.sh
+    adapter bus): BOARD=launchxl_drv8305evm MOTOR=am_4116_kv450 NODE_ID=25 PRODUCT=1 bash build.sh
   * 1 Mbit bus (BOARD_CAN_BITRATE), 120 ohm termination, adapter = /dev/ttyACM2 (0483:5740).
 
 Usage:

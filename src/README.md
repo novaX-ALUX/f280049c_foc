@@ -19,4 +19,4 @@ Swap the board → touch only `boards/`; swap the motor → touch only `motors/`
 The purity rule is strict: no driverlib, HAL, board headers, SDK lab headers, or target-only side
 effects under `src/`. Hardware access belongs in `boards/<board>/drivers/`; product glue lives in
 `product/product_main.c`. Run `bash tools/test/run.sh` for host coverage and
-`BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1 bash build.sh` for the C28x compile gate.
+`BOARD=esc6288_revA MOTOR=am_4116_kv450 SRC_CHECK=1 bash build.sh` for the C28x compile gate.

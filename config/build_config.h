@@ -11,7 +11,7 @@
 #endif
 
 #define BUILD_MOTOR_ID_TEMPLATE          (1U)   // use the SDK example motor from board user.h (default)
-#define BUILD_MOTOR_ID_AM_4116_KVA       (2U)
+#define BUILD_MOTOR_ID_AM_4116_KV450       (2U)
 #define BUILD_MOTOR_ID_AM_4116_KVB       (3U)
 #define BUILD_MOTOR_ID_AM_6212           (4U)
 #define BUILD_MOTOR_ID_AM_6215           (5U)

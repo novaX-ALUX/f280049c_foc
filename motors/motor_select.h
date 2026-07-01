@@ -11,8 +11,8 @@
 
 #if   (BUILD_MOTOR_ID == BUILD_MOTOR_ID_TEMPLATE)
   // No profile included -- use the SDK example motor from board user.h (backward-compatible default).
-#elif (BUILD_MOTOR_ID == BUILD_MOTOR_ID_AM_4116_KVA)
-  #include "am_4116_kva.h"
+#elif (BUILD_MOTOR_ID == BUILD_MOTOR_ID_AM_4116_KV450)
+  #include "am_4116_kv450.h"
 #elif (BUILD_MOTOR_ID == BUILD_MOTOR_ID_AM_4116_KVB)
   #include "am_4116_kvb.h"
 #elif (BUILD_MOTOR_ID == BUILD_MOTOR_ID_AM_6212)

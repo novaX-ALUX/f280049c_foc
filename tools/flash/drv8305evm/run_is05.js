@@ -114,7 +114,7 @@ p("  Rs       = " + f(rs,5)   + " Ohm   (" + f(rs*1000,2) + " mOhm)");
 p("  Ls_d     = " + f(lsd*1e6,2) + " uH");
 p("  Ls_q     = " + f(lsq*1e6,2) + " uH");
 p("  flux     = " + f(fx,5)   + " V/Hz   (" + f(fwb,6) + " Wb)");
-p("  -> motors/am_4116_kva.h: USER_MOTOR_Rs_Ohm=" + f(rs,5) +
+p("  -> motors/am_4116_kv450.h: USER_MOTOR_Rs_Ohm=" + f(rs,5) +
    ", Ls_d_H=" + f(lsd,8) + ", Ls_q_H=" + f(lsq,8) + ", RATED_FLUX_VpHz=" + f(fx,5));
 p("  (back these into the motor profile; re-verify with a closed-loop lab.)");
 

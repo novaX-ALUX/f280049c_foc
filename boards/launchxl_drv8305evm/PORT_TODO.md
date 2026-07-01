@@ -64,7 +64,7 @@ directory only addresses the DRV8305EVM board layer.
     ePWM/CMPSS blanking around center-aligned compare edges, and software fault reporting only from
     persistent one-shot DCA/DC source latches after the PWM-startup window. The launchxl bench DAC threshold
     stays at the inherited +/-11.8 A (`cmpsaDACH/DACL=3072/1024`); edge noise is handled by blanking rather
-    than by consuming trip-current headroom. **Verified on hardware** with AM-4116 KVA `is06_torque_control`
+    than by consuming trip-current headroom. **Verified on hardware** with AM-4116 KV450 `is06_torque_control`
     at 24 V, Iq=0.2 A and Iq=1.0 A for a full 9 s run (`faultUse.all=0`). Remaining: validate the real trip
     current under controlled load before relying on it as final protection; esc6288 will use its own
     shunt/CMPSS thresholds.

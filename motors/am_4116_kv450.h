@@ -1,4 +1,4 @@
-// am_4116_kva.h -- NovaX/AM-4116 (KV variant A = KV450 wind) FOC profile
+// am_4116_kv450.h -- NovaX/AM-4116 (KV450 wind; formerly "am_4116_kva" / KV variant A) FOC profile
 // Status: Rs/Ls/flux BACK-FILLED from verified legacy FAST identification (../esc_drv8300_foc,
 // esc_drv8300 board, MotorWare lab02c). The KV450 wind was identified 2026-06-05 (EST 20 kHz);
 // flux = 0.012 V/Hz is the authoritative FAST-identified value. A free-shaft spin reached 8.16 krpm
@@ -8,10 +8,10 @@
 // rpm/V reading -- do NOT back-derive KV as 8160/24 (=340, wrong). KV450 is the nameplate. These are
 // physical control-path values; they transfer across the IQ scaling differences between MotorWare
 // and this driverlib SDK6 project. See motors/README.md.
-#ifndef MOTOR_AM_4116_KVA_H
-#define MOTOR_AM_4116_KVA_H
+#ifndef MOTOR_AM_4116_KV450_H
+#define MOTOR_AM_4116_KV450_H
 
-#define MOTOR_NAME                        "AM-4116-KVA"
+#define MOTOR_NAME                        "AM-4116-KV450"
 #define MOTOR_KV_RPM_PER_V                (450)      // nameplate KV450 wind (no-load spin is modulation-capped, not a direct KV -- see header)
 
 #define USER_MOTOR_TYPE                   MOTOR_TYPE_PM
@@ -60,4 +60,4 @@
 #define USER_MOTOR_VOLT_MIN_V             (4.0)       // V/f template -- NOT for 4116 (see note above)
 #define USER_MOTOR_VOLT_MAX_V             (24.0)      // V/f template -- NOT for 4116 (see note above)
 
-#endif // MOTOR_AM_4116_KVA_H
+#endif // MOTOR_AM_4116_KV450_H

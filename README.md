@@ -118,10 +118,10 @@ Install the TI compiler and MotorControl SDK, then run the esc6288 gates:
 
 ```bash
 bash tools/test/run.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1     bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 SRC_CHECK=1     bash build.sh
 BOARD=esc6288_revA                   CAN_CHECK=1     bash build.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT_CHECK=1 bash build.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1       bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT_CHECK=1 bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1       bash build.sh
 BOARD=esc6288_revA LAB=all bash build.sh
 ```
 
@@ -138,16 +138,16 @@ product subdirectory under `build/<BOARD>/<MOTOR>/`.
 
 ```bash
 BOARD=esc6288_revA LAB=is01_intro_hal bash build.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
-NODE_ID=25 ESC_INDEX=0 BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
-EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh
+NODE_ID=25 ESC_INDEX=0 BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh
+EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh
 MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 ```
 
 - `BOARD` selects the board HAL and injects `BUILD_BOARD_ID`; each `board.h`
   self-checks the ID.
 - `MOTOR` selects `motors/<model>.h` and injects `BUILD_MOTOR_ID`. Options:
-  `motor_template`, `am_4116_kva`, `am_4116_kvb`, `am_6212`, `am_6215`.
+  `motor_template`, `am_4116_kv450`, `am_4116_kvb`, `am_6212`, `am_6215`.
 - `PRODUCT=1` links `product/product_main.c` instead of an SDK lab.
 - `NODE_ID=0` means DroneCAN dynamic node allocation; `1..127` is a static node id.
 - `ESC_INDEX=0..19` selects the RawCommand array index.

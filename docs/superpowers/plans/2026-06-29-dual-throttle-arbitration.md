@@ -926,7 +926,7 @@ Also update the now-stale init comment in `product/product_main.c` (~line 303) t
 
 - [ ] **Step 3: Verify the on-target compile (product link)**
 
-Run: `BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh`
+Run: `BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh`
 Expected: build succeeds (board sources, including `rc_pwm.c`, compile and link). At this point `RC_PWM_read` is defined but not yet called — that is wired in Task 5.
 
 - [ ] **Step 4: Commit**
@@ -1079,17 +1079,17 @@ Expected: all tests PASS (the `esc_types.h` bit + arbiter are pure; nothing else
 
 - [ ] **Step 7: Verify the product source compiles**
 
-Run: `BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1 bash build.sh`
+Run: `BOARD=esc6288_revA MOTOR=am_4116_kv450 SRC_CHECK=1 bash build.sh`
 Expected: PASS. If the build uses an explicit source list rather than a `src/app/*.c` glob, add `src/app/esc_arbiter.c` to that list in `build.sh` and re-run.
 
 - [ ] **Step 8: Verify the product-glue zero-warning gate**
 
-Run: `BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT_CHECK=1 bash build.sh`
+Run: `BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT_CHECK=1 bash build.sh`
 Expected: PASS. `PRODUCT_CHECK` compile-checks the SDK-coupled product glue (`product_main.c` + `foc_bridge.c`) with warnings-as-errors; since this task edits the `product_main.c` tick path, run this gate explicitly (it is narrower than `PRODUCT=1` and catches product-glue warnings the link step may tolerate). Note: `PRODUCT_CHECK` does NOT compile `rc_pwm.c` or `esc_arbiter.c` — those are covered by Step 7 (`SRC_CHECK`) and Step 9 (`PRODUCT=1`).
 
 - [ ] **Step 9: Verify the full product link**
 
-Run: `BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh`
+Run: `BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh`
 Expected: PASS (arbiter + `RC_PWM_read` linked into the image).
 
 - [ ] **Step 10: Verify the SDK-lab regression (other boards still build)**

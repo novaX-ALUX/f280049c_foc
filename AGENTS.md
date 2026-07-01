@@ -17,7 +17,7 @@ Use `build.sh`; it selects by `BOARD`, `MOTOR`, and `LAB`, then writes to `build
 ```bash
 bash build.sh
 BOARD=esc6288_revA LAB=all bash build.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh
 CGT=/path/to/ti-cgt-c2000 MCSDK_ROOT=/path/to/C2000Ware_MotorControl_SDK_6_00_00_00 bash build.sh
 ```
 
@@ -31,10 +31,10 @@ Host tests cover pure `src/` logic. Use the narrowest gate for the change, then 
 
 ```bash
 bash tools/test/run.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva SRC_CHECK=1 bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 SRC_CHECK=1 bash build.sh
 BOARD=esc6288_revA CAN_CHECK=1 bash build.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT_CHECK=1 bash build.sh
-BOARD=esc6288_revA MOTOR=am_4116_kva PRODUCT=1 bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT_CHECK=1 bash build.sh
+BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1 bash build.sh
 BOARD=esc6288_revA LAB=all bash build.sh
 ```
 

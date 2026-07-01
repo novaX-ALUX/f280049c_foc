@@ -14,7 +14,7 @@ rated current/voltage, maximum speed, inertia, etc. Swapping a motor means swapp
 4 profiles are created and selectable. **Geometric pole pairs are filled** (4116=7, 62xx=14).
 The **4116 profiles are back-filled from verified legacy FAST ID** (spin-confirmed, see below); the
 **62xx Rs/Ls/flux are still bench seeds** — run is05 and back-fill measured values:
-- [x] `am_4116_kva.h` (KV450 wind, 7 pp) — Rs/Ls/flux from legacy FAST ID (esc_drv8300, 2026-06-05, spin-confirmed KV~450)
+- [x] `am_4116_kv450.h` (KV450 wind, 7 pp) — Rs/Ls/flux from legacy FAST ID (esc_drv8300, 2026-06-05, spin-confirmed KV~450)
 - [x] `am_4116_kvb.h` (KV470 wind, 7 pp) — Rs/Ls/flux from legacy FAST re-ID (esc_drv8300, 2026-06-11)
 - [ ] `am_6212.h` (14 pole pairs)
 - [ ] `am_6215.h` (14 pole pairs)

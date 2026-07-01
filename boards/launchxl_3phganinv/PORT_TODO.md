@@ -55,7 +55,7 @@ No SPI, no gate-driver fault pin, no WAKE. `BOARD_HAS_GATE_FAULT_INPUT = 0`.
 - [x] **Voltage full-scale**: VdcBus reads ~24.0 V at a metered 24 V bus → 81.5 V FS is about right.
       (Confirm exact divider at higher bus before relying on it.)
 
-## Bench results (2026-06-24, AM-4116-KVA on 24 V)
+## Bench results (2026-06-24, AM-4116-KV450 on 24 V)
 Hardware bring-up of the new board **succeeded**. Validated over the XDS110/DSS helpers:
 - **Power architecture (important):** the BoosterPack makes its own 5 V/3.3 V/VREF **from VBUS**
   (LM5017 buck → LP38691 LDO → REF3333; schematic sheets 1–2). **USB-only does NOT properly power the
@@ -105,7 +105,7 @@ Two hardware facts confirmed against the code (drive the order):
   no SPI macro (`build.sh:127`). So "it compiles" ≠ "PWM reaches the LMG5200". The gate buffer must be
   enabled explicitly — the `*_3phganinv.js` helpers below drive **GPIO39 LOW (active-low nEn_uC)**.
 - **AM-4116 unsafe on is03 V/f and is05 ID here.** is03 scalar V/f puts `VOLT_MIN_V` across ~40 mΩ ≈
-  instant over-current (`am_4116_kva.h:46`); is05 FAST-ID startup transient exceeds this board's
+  instant over-current (`am_4116_kv450.h:46`); is05 FAST-ID startup transient exceeds this board's
   ±16.5 A sense ceiling (tighter than the DRV8305 EVM). See `product/BENCH.md`, `motors/README.md`.
 
 GaN gate polarity (opposite of DRV8305): enable = `GPBCLEAR 0x7F0C` bit7 (GPIO39 LOW, readback 0);
@@ -138,9 +138,9 @@ Skipped on this board for the 4116: energized is03 V/f, is05 re-ID. Full-power 4
 ## Build / verify
 ```bash
 # primary gate (compiles + links the board HAL with a lab):
-BOARD=launchxl_3phganinv MOTOR=am_4116_kva LAB=is01_intro_hal bash build.sh
+BOARD=launchxl_3phganinv MOTOR=am_4116_kv450 LAB=is01_intro_hal bash build.sh
 # regression: every single-motor lab:
 BOARD=launchxl_3phganinv LAB=all bash build.sh
 # secondary (src/ modules only; does NOT exercise board headers):
-BOARD=launchxl_3phganinv MOTOR=am_4116_kva SRC_CHECK=1 bash build.sh
+BOARD=launchxl_3phganinv MOTOR=am_4116_kv450 SRC_CHECK=1 bash build.sh
 ```
