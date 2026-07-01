@@ -24,13 +24,12 @@
 // neutral); using it tunes the current regulator ~2x too stiff. esc6288 is05 FAST ID reads 0.0167
 // (low-signal, ~21% under); the bench-derived 0.0213 is the more reliable phase-neutral seed.
 #define USER_MOTOR_Rs_Ohm                 (0.0213)    // ~21 mOhm Y phase-to-neutral (line-line 42-43 mOhm / 2)
-// [Re-ID 2026-07-01] esc6288 SDK6 FAST, median of 4 completed is05 runs (23.1/23.5/23.6/24.5 uH,
-// tight +-3%). Was 33.6 from the same legacy recipe that mis-scaled Rs; the direct SDK6 getter reads
-// 23.5. NOTE: like Rs, this sits ~30% below the old value -- a Kelvin current-scale check (pending)
-// would confirm whether a ~1.3x current over-read means true Ls is ~30 uH. Lower Ls = safer (lower
-// current-loop Kp), so 23.5 is the conservative committed value.
-#define USER_MOTOR_Ls_d_H                 (23.5e-6)   // ~23.5 uH (esc6288 is05 FAST median)
-#define USER_MOTOR_Ls_q_H                 (23.5e-6)   // = Ls_d (FAST identifies a single average Ls)
+// [Re-ID 2026-07-01] esc6288 SDK6 FAST. Raw is05 median was 23.5 uH under the UNcorrected 330 A scale;
+// the bench cal proved the sense over-reads 1.30x. With USER_ADC_FULL_SCALE_CURRENT_A corrected to 254,
+// a fresh is05 validation run reads Ls=29.96 uH directly (and Rs=0.0223 ~= meter 0.0213) -> 30.0 uH.
+// (Legacy KV470 wind was 30.0 uH, consistent.)
+#define USER_MOTOR_Ls_d_H                 (30.0e-6)   // ~30 uH (esc6288 is05 FAST, current-scale corrected + validated)
+#define USER_MOTOR_Ls_q_H                 (30.0e-6)   // = Ls_d (FAST identifies a single average Ls)
 #define USER_MOTOR_RATED_FLUX_VpHz        (0.012)     // FAST-identified; spin ruled out the 2x-flux error (see header). NOT a seed
 
 // [Input] FAST identification currents -- these are the LEGACY-VALIDATED ID conditions (24 V / 10 A

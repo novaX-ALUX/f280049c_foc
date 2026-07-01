@@ -222,8 +222,9 @@ static const ntc_cfg_t g_ntc_cfg = {
 
 // esc6288_revA fast (per-ISR, 20 kHz) software overcurrent backstop, amps. Phases A/B have
 // no CMPSS comparator, so this is their fast trip (phase C also has CMPSS3). Hard backstop
-// above the 1 ms product OC limit (oc_set_A = 30 A) and below the +/-165 A sense FS. Tune
-// on the bench against the FET/shunt rating.
+// above the 1 ms product OC limit (oc_set_A = 30 A) and below the +/-127 A sense FS (current
+// scale corrected 330->254 on 2026-07-01; all A-thresholds now trip at TRUE amps). Tune on the
+// bench against the FET/shunt rating; for first 15" prop starts drop oc_set_A to ~10-15 A.
 #define ESC6288_ISR_OC_A   (60.0f)
 
 static void product_build_esc_cfg(esc_control_cfg_t *c)
@@ -245,7 +246,7 @@ static void product_build_esc_cfg(esc_control_cfg_t *c)
     // esc6288_revA / 12S target (conservative bench bring-up defaults; raise after
     // validation). Hardware backstops: CMPSS3 phase-C OC + CMPSS5 bus OV (~56 V). These
     // software limits are the PRIMARY protection for phases A/B (which have no CMPSS).
-    c->oc_set_A   = 30.0f;  c->oc_clr_A   = 25.0f;   // current FS is +/-165 A; start low
+    c->oc_set_A   = 30.0f;  c->oc_clr_A   = 25.0f;   // TRUE amps (FS corrected to +/-127 A 2026-07-01); drop to ~10-15 A for first prop
     c->vbus_ov_set = 54.0f; c->vbus_ov_clr = 50.0f;  // 12S max charge 50.4 V; HW OV ~56 V
     c->vbus_uv_set = 18.0f; c->vbus_uv_clr = 22.0f;  // low for bench; raise for flight
     c->temp_ot_set = 100.0f; c->temp_ot_clr = 85.0f; // live: NTC->degC via ntc.c (trim curve on bench)

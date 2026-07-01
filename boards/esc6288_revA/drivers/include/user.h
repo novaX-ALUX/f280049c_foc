@@ -78,9 +78,13 @@ extern "C" {
 
 
 //! \brief Defines the maximum current at the AD converter
-//!        esc6288_revA front-end: 0.5 mOhm shunt x INA181A1 (gain 20), 3.3V ref,
-//!        1.65V mid-rail bias (bidirectional). FS = 3.3 / (0.0005 * 20) = 330 A span (+/-165 A).
-#define USER_ADC_FULL_SCALE_CURRENT_A         ((float32_t)(330.0))
+//!        esc6288_revA front-end: 0.5 mOhm shunt x INA181A1 (gain 20), 3.3V ref, 1.65V mid-rail bias.
+//!        Nameplate FS = 3.3/(0.0005*20) = 330 A. BUT bench cal (2026-07-01): the sense OVER-READS 1.30x
+//!        -- is05 Rs = 0.0164 Ohm stayed flat at 4 A and 8 A inject (rules out low-signal) vs the 4-wire
+//!        meter phase-neutral 0.0213 Ohm; voltage scale is confirmed correct (flux matches). So the TRUE
+//!        full scale = 330/1.30 = 254 A. Real shunt/gain vs BOM (0.65 mOhm? higher INA gain?) is a rev-B
+//!        HW check item; 254 corrects the firmware reading regardless.
+#define USER_ADC_FULL_SCALE_CURRENT_A         ((float32_t)(254.0))
 
 //! \brief Defines the analog voltage filter pole location, Hz
 //!
@@ -88,10 +92,10 @@ extern "C" {
 
 
 //! \brief ADC current offsets for A, B, and C phases (mid-rail bias seed; runtime
-//!        offset calibration refines these at power-on). = -0.5 * FS = -165.0 A.
-#define IA_OFFSET_A    (-165.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
-#define IB_OFFSET_A    (-165.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
-#define IC_OFFSET_A    (-165.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
+//!        offset calibration refines these at power-on). = -0.5 * FS = -127.0 A.
+#define IA_OFFSET_A    (-127.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
+#define IB_OFFSET_A    (-127.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
+#define IC_OFFSET_A    (-127.0f)   // ~=-0.5*USER_ADC_FULL_SCALE_CURRENT_A
 
 
 //! \brief ADC voltage offsets for A, B, and C phases

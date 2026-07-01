@@ -86,10 +86,16 @@ flux≈0.0128 V/Hz**.
   the FOC model wants. Both MotorWare and SDK6 FAST use phase-to-neutral; SDK6's direct getter is correct.
   `motors/am_4116_kv450.h` Rs corrected `0.0403 → 0.0213` (bench line-line/2).
 - **Ls corrected `33.6 → 23.5 µH`** (esc6288 ID median; old 33.6 was the same suspect recipe).
-- **Open — Kelvin current-scale check:** ID Rs (0.0164) and Ls (23.5) both sit ~25–30 % below the old values while
-  flux matches; this is consistent with either a mild ~1.3× current over-read (→ true Ls ~30 µH) or the old recipe
-  being high. A Kelvin measurement (force known DC current, read `adcData.I_A`) settles the current-sense gain and
-  the final Rs/Ls. Committed values take the conservative (lower-Kp) direction until then.
+- **RESOLVED (2026-07-01) — current sense over-reads 1.30×.** The current-scale ambiguity is settled: re-ran the
+  is05 Rs-ID at **8 A** inject and Rs stayed **0.0164 Ω** (identical to the 4 A runs) — a low-signal artifact would
+  have risen toward the meter value, so it is a fixed **gain error**: `k = R_meter(0.0213) / Rs_fw(0.0164) = 1.30`.
+  Voltage scale is confirmed correct (flux matches), so the error is purely the current path. **Corrected
+  `USER_ADC_FULL_SCALE_CURRENT_A` 330 → 254** (= 330/1.30) and the offset seeds -165 → -127. A fresh is05
+  **validation** run then read **Rs=0.0223 Ω (≈ meter 0.0213), Ls=29.96 µH, flux=0.0126** — self-consistent, so
+  profile Ls updated 23.5 → 30.0 µH (Rs kept at meter 0.0213). All product current thresholds are in amps and derived
+  via FS, so they now trip at **TRUE amps** (the old 330 scale made them ~1.3× over-conservative by accident). HW root
+  cause (real shunt/gain vs BOM 0.5 mΩ × 20 → measured ~0.013 V/A) is a **rev-B check item**. Before 15" prop:
+  drop `oc_set_A` from 30 A to ~10–15 A (Codex bench limit).
 
 ### Sensorless cold-start (self-start from standstill) — [FOLLOW-UP, not solved]
 The 4116 (≈0.012 V/Hz surface-PM outrunner) does **not** reliably self-start under pure sensorless FAST: is06

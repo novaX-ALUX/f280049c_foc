@@ -45,8 +45,8 @@ s.target.runAsynch(); Thread.sleep(SECS*1000); s.target.halt();   // ONE continu
 var idn=num("motorVars.flagMotorIdentified"), fn=num("motorVars.faultUse.all");
 p("");
 p(">>> after "+SECS+"s continuous: flagMotorIdentified="+idn+"  faultUse="+fn+"  speed_Hz="+f(getf("motorVars.speed_Hz"),1));
-p("    Rs        = "+f(getf("motorVars.Rs_Ohm"),6)+" Ohm    (profile 0.0213 Y phase-neutral; ID reads ~0.0164)");
-p("    Ls_d/Ls_q = "+f(getf("motorVars.Ls_d_H")*1e6,3)+" / "+f(getf("motorVars.Ls_q_H")*1e6,3)+" uH   (profile 23.5, ID median)");
+p("    Rs        = "+f(getf("motorVars.Rs_Ohm"),6)+" Ohm    (profile 0.0213 Y phase-neutral; post-cal ID ~0.0223)");
+p("    Ls_d/Ls_q = "+f(getf("motorVars.Ls_d_H")*1e6,3)+" / "+f(getf("motorVars.Ls_q_H")*1e6,3)+" uH   (profile 30.0, post-cal ID ~30)");
 p("    flux      = "+f(getf("motorVars.flux_VpHz"),6)+" V/Hz   (profile 0.012)");
 p("    IdRated   = "+f(getf("motorVars.IdRated_A"),3)+" A");
 if(idn===1) p(">>> *** MOTOR IDENTIFIED — full FAST ID complete! ***");
