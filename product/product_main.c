@@ -122,6 +122,48 @@ FILTER_FO_Obj     filter_V[USER_NUM_VOLTAGE_SENSORS];
 
 MATH_Vec2 IdqSet_A = {0.0, 0.0};   //!< product-driven Iq reference (Amps)
 
+//! \brief Open-loop I/f sensorless self-start (esc6288). A free/low-flux shaft cannot start on the
+//! FAST angle at standstill (it oscillates). This drives the rotor open-loop -- align to a known
+//! angle, then ramp an open-loop electrical angle while holding a d-axis current -- until FAST's angle
+//! coheres with the open-loop angle, then HANDS OFF to the normal FAST-angle + throttle-Iq path.
+//! Bench-proven on is04 (align 3 A, ramp to 30-50 Hz, FAST locks with <7 deg angle error). Params are
+//! live-tunable over DSS. enable=0 -> exact legacy behavior (FAST angle from standstill, no override).
+typedef enum { SU_IDLE = 0, SU_ALIGN = 1, SU_RAMP = 2, SU_RUN = 3, SU_FAULT = 4 } su_state_t;
+typedef struct {
+    uint16_t   enable;                  //!< 1 = run the open-loop I/f startup; 0 = legacy FAST-angle path
+    su_state_t state;                   //!< current startup state
+    float32_t  angle_rad;               //!< open-loop electrical angle output (ALIGN/RAMP)
+    float32_t  freq_Hz;                 //!< current open-loop electrical frequency
+    uint32_t   tick;                    //!< ISR ticks elapsed in the current state
+    uint16_t   fault;                   //!< 1 = startup stalled (ramp timeout without FAST handoff)
+    // --- live-tunable parameters (DSS) ---
+    float32_t  id_align_A;              //!< d-axis align current (rotor lock)
+    float32_t  id_ramp_A;              //!< d-axis current held during the open-loop ramp
+    float32_t  align_s;                 //!< align dwell time, s
+    float32_t  accel_Hzps;              //!< open-loop ramp rate, electrical Hz/s
+    float32_t  handoff_Hz;              //!< min open-loop freq before handoff is allowed
+    float32_t  handoff_err_rad;         //!< max |FAST angle - open-loop angle| for handoff
+    float32_t  timeout_s;               //!< ramp watchdog: no handoff by here -> SU_FAULT (coast)
+} su_t;
+su_t g_su = {
+    1u, SU_IDLE, 0.0f, 0.0f, 0u, 0u,
+    3.0f,   /* id_align_A   */
+    3.0f,   /* id_ramp_A    */
+    1.5f,   /* align_s      */
+    25.0f,  /* accel_Hzps   */
+    35.0f,  /* handoff_Hz   */
+    0.35f,  /* handoff_err_rad (~20 deg) */
+    4.0f    /* timeout_s    */
+};
+
+#ifdef ESC6288_BENCH_THROTTLE
+//! \brief Bench-only throttle injection (bypasses the CAN arbiter) to exercise the I/f self-start over
+//! DSS. Set g_bench_iq_A, then g_bench_arm=1 to arm + command a torque; g_bench_arm=0 coasts. Built
+//! only with --define=ESC6288_BENCH_THROTTLE; never in a production image.
+float32_t g_bench_iq_A = 0.0f;
+uint16_t  g_bench_arm  = 0u;
+#endif
+
 #ifdef PWMDAC_ENABLE
 HAL_PWMDACData_t pwmDACData;
 #pragma DATA_SECTION(pwmDACData, "ctrl_data");
@@ -535,6 +577,12 @@ static void product_tick_1ms(void)
 
     // 4) map the control output to a FAST setpoint and apply it
     foc_bridge_map_output(&g_fbcfg, &out, &sp);
+#ifdef ESC6288_BENCH_THROTTLE
+    if(g_bench_arm != 0u)
+    {   // bench override: arm + command a raw torque, bypassing the arbiter (I/f self-start test)
+        sp.enable = true;  sp.brake = false;  sp.speed_mode = false;  sp.iq_ref_A = g_bench_iq_A;
+    }
+#endif
     apply_setpoint(&sp);
 
     // 5) park-ref store request: fold the freshly learned reference into the nvparam mirror,
@@ -930,6 +978,69 @@ void main(void)
 
 } // end of main() function
 
+//! \brief Advance the open-loop I/f startup one ISR tick. Returns true when the ISR must OVERRIDE the
+//! FOC with the open-loop angle + d-axis current (ALIGN/RAMP/FAULT); false = normal FAST-angle path
+//! (IDLE/RUN, or enable==0). est_angle_rad is the live FAST electrical angle (for the handoff test).
+static inline bool startup_step(bool armed, float32_t est_angle_rad)
+{
+    const float32_t dt = 1.0f / USER_ISR_FREQ_Hz;
+
+    if(!armed)
+    {   // disarmed -> reset; legacy path
+        g_su.state = SU_IDLE;  g_su.freq_Hz = 0.0f;  g_su.angle_rad = 0.0f;  g_su.tick = 0u;
+        return false;
+    }
+    if(g_su.enable == 0u)
+    {   // I/f startup disabled -> exact legacy behavior (FAST angle from standstill)
+        g_su.state = SU_RUN;
+        return false;
+    }
+
+    switch(g_su.state)
+    {
+        case SU_IDLE:                              // just armed -> begin alignment
+            g_su.state = SU_ALIGN;  g_su.tick = 0u;  g_su.freq_Hz = 0.0f;
+            g_su.angle_rad = 0.0f;  g_su.fault = 0u;
+            return true;
+
+        case SU_ALIGN:                             // hold rotor at a known electrical angle
+            g_su.angle_rad = 0.0f;
+            if(++g_su.tick >= (uint32_t)(g_su.align_s * USER_ISR_FREQ_Hz))
+            {
+                g_su.state = SU_RAMP;  g_su.tick = 0u;
+            }
+            return true;
+
+        case SU_RAMP:                              // open-loop electrical angle accelerates
+        {
+            float32_t err;
+            g_su.freq_Hz += g_su.accel_Hzps * dt;
+            g_su.angle_rad = MATH_incrAngle(g_su.angle_rad, g_su.freq_Hz * MATH_TWO_PI * dt);
+            err = est_angle_rad - g_su.angle_rad;  // wrapped |FAST angle - open-loop angle|
+            while(err >  MATH_PI) { err -= MATH_TWO_PI; }
+            while(err < -MATH_PI) { err += MATH_TWO_PI; }
+            if(err < 0.0f) { err = -err; }
+            if((g_su.freq_Hz >= g_su.handoff_Hz) && (err < g_su.handoff_err_rad))
+            {
+                g_su.state = SU_RUN;               // HANDOFF: FAST owns the angle from here
+                return false;
+            }
+            if(++g_su.tick >= (uint32_t)(g_su.timeout_s * USER_ISR_FREQ_Hz))
+            {
+                g_su.fault = 1u;  g_su.state = SU_FAULT;   // stalled: stop driving, coast
+            }
+            return true;
+        }
+
+        case SU_FAULT:                             // hold: caller zeroes current until disarmed
+            return true;
+
+        case SU_RUN:
+        default:
+            return false;                          // normal closed-loop (FAST angle + throttle Iq)
+    }
+}
+
 __interrupt void mainISR(void)
 {
     motorVars.pwmISRCount++;
@@ -1010,6 +1121,25 @@ __interrupt void mainISR(void)
         Idq_ref_A.value[0] = IdqSet_A.value[0];
         Idq_ref_A.value[1] = IdqSet_A.value[1];
 
+        // open-loop I/f self-start (esc6288): drive a d-axis current at an open-loop angle until FAST
+        // coheres, then hand off. Overrides the throttle Iq only during ALIGN/RAMP (Iq=0), or forces
+        // zero current on a startup stall (SU_FAULT). No override in RUN -> normal torque path.
+        if(startup_step((motorVars.flagRunIdentAndOnLine != 0), estOutputData.angle_rad))
+        {
+            Idq_ref_A.value[0] = (g_su.state == SU_FAULT) ? 0.0f
+                               : (g_su.state == SU_ALIGN) ? g_su.id_align_A : g_su.id_ramp_A;
+            Idq_ref_A.value[1] = 0.0f;
+
+            // Measure Idq in the OPEN-LOOP frame. EST_getIdq_A (above) uses the FAST angle, which is
+            // force-held near 0 while our open-loop angle ramps -> feedback/drive frame mismatch ->
+            // the current loop diverges -> OC. Re-Park the measured Iab onto our open-loop angle so the
+            // current-PI feedback matches the applied vector. (SU_FAULT drives Iq=Id=0, frame moot.)
+            phasor.value[0] = cosf(g_su.angle_rad);
+            phasor.value[1] = sinf(g_su.angle_rad);
+            PARK_setPhasor(parkHandle, &phasor);
+            PARK_run(parkHandle, &(estInputData.Iab_A), (MATH_Vec2 *)(&(Idq_in_A)));
+        }
+
         EST_updateId_ref_A(estHandle, (float32_t *)&(Idq_ref_A.value[0]));
 
         userParams.maxVsMag_V = userParams.maxVsMag_pu * adcData.dcBus_V;
@@ -1034,7 +1164,14 @@ __interrupt void mainISR(void)
         EST_setIdq_ref_A(estHandle, &Idq_ref_A);
 
         angleDelta_rad = userParams.angleDelayed_sf_sec * estOutputData.fm_lp_rps;
-        angleFoc_rad = MATH_incrAngle(estOutputData.angle_rad, angleDelta_rad);
+        if((g_su.state == SU_ALIGN) || (g_su.state == SU_RAMP))
+        {
+            angleFoc_rad = g_su.angle_rad;          // open-loop I/f angle during self-start
+        }
+        else
+        {
+            angleFoc_rad = MATH_incrAngle(estOutputData.angle_rad, angleDelta_rad);
+        }
 
         phasor.value[0] = cosf(angleFoc_rad);
         phasor.value[1] = sinf(angleFoc_rad);

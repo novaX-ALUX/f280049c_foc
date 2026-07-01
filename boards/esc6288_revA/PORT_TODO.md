@@ -97,22 +97,36 @@ flux≈0.0128 V/Hz**.
   cause (real shunt/gain vs BOM 0.5 mΩ × 20 → measured ~0.013 V/A) is a **rev-B check item**. Before 15" prop:
   drop `oc_set_A` from 30 A to ~10–15 A (Codex bench limit).
 
-### Sensorless cold-start (self-start from standstill) — [FOLLOW-UP, not solved]
-The 4116 (≈0.012 V/Hz surface-PM outrunner) does **not** reliably self-start under pure sensorless FAST: is06
-torque needs a hand-flick; is07 speed-loop armed directly from standstill oscillates (`speed_Hz` swings ±, the
-speed PI pins Iq at its cap) and never locks. **Codex analysis (2026-06-30) — root cause is NOT
-`USER_FORCE_ANGLE_FREQ_Hz` (both this project and the legacy esc_drv8300 use 1.0 Hz).** The gap is a missing
-deterministic rotor **align + open-loop I/f ramp** before the speed loop closes: at standstill a 0.012 V/Hz motor
-has no observable BEMF, so FAST cannot lock until the rotor is already moving. The legacy MotorWare esc_drv8300
-project never self-started the 4116 from `SpeedRef` either — its first spin was torque mode (`IqRef` + a ~1.5 A
-breakaway floor + force-angle only for direction), and speed control came after torque validation.
-**Plan (a dedicated startup-tuning task):** (1) Id ALIGN — `IdqSet_A.value[0]=2–3 A`, Iq=0, `speedRef=0`,
-`accelerationMax=0`, arm, dwell 1–2 s (rotor pulls to a known angle); (2) slow open-loop **I/f ramp** —
-`accelerationMax≈2 Hz/s`, ramp `speedRef` up; (3) hand over to FAST only once `speed_Hz` coherently tracks; run
-**continuously** (no halt-sampling, which desyncs FAST); keep `FORCE_ANGLE_FREQ=1.0`, Rs-recalc/RsOnLine off,
-Iq capped. Port the launchxl I/f-characterization tooling (`tools/flash/drv8305evm/run_if_rampB.js`,
-`run_draghi.js`, `run_if_rec.js` + their bench-fork in-ISR recorder) to esc6288 (OST safe-off, no EN_GATE).
-Until then the bench demonstrates spin via `run_is06_esc6288.js` (flick bootstrap).
+### Sensorless cold-start (self-start from standstill) — [SOLVED 2026-07-01 via open-loop I/f]
+The 4116 (≈0.012 V/Hz surface-PM outrunner) does **not** self-start on the FAST angle at standstill: is06 torque
+needs a hand-flick; is07 speed-loop armed from standstill oscillates (FAST cannot lock with no observable BEMF).
+Root cause is NOT `USER_FORCE_ANGLE_FREQ_Hz` (both this and legacy esc_drv8300 use 1.0 Hz) — the gap was a missing
+deterministic rotor **align + open-loop I/f ramp** before FAST takes over.
+
+**Solved:** `run_iftest_esc6288.js` proved the open-loop I/f rig on is04 (5/5 param sets: 4116 spins up from
+standstill, FAST locks with 2–7° angle error, accel 10–40 Hz/s / id 2–3 A / handoff 30–50 Hz — wide no-load
+envelope). The startup is now a **state machine in the product firmware** (`product/product_main.c`, `g_su` +
+`startup_step()`): `SU_IDLE → SU_ALIGN (hold Id at angle 0) → SU_RAMP (open-loop angle ramps at accel, hold Id) →
+SU_RUN (hand off to FAST angle + throttle Iq when freq≥handoff_Hz AND |FAST angle − open-loop angle|<thresh)`.
+Live-tunable via DSS (`g_su.*`); `g_su.enable=0` = exact legacy behavior. **KEY FIX:** during ALIGN/RAMP the ISR
+re-PARKs the measured `Iab` onto the **open-loop angle** (not `EST_getIdq_A`'s FAST angle, which is force-held near
+0 while the open-loop angle ramps) — without this the current-PI feedback frame is mismatched with the applied
+vector and the loop diverges into a >60 A spike (software ISR OC). Validated end-to-end
+(`run_selfstart_esc6288.js`, product built `--define=ESC6288_BENCH_THROTTLE`): from standstill → SU_RUN via handoff
+at 35 Hz, faultUse=0, spun 4292 rpm closed-loop under FAST, no flick. (Note: product FOC had never been armed on
+esc6288 before this — the arm/align path itself is now proven too.)
+
+**Hardening follow-ups (Codex review 2026-07-01) before 15" prop / production, ranked:**
+1. **`SU_FAULT` must be real safe-off** — currently zeroes Idq but leaves `flagRunIdentAndOnLine=1` (PWM/EST stay
+   enabled = active zero-current, not OST safe-off). Latch a product fault + clear the run flag / `HAL_disablePWM`.
+2. **Ramp slip/stall guard** — no speed-tracking guard in `SU_RAMP`; a prop can slip far behind → high load-angle
+   current → OC before the timeout. Add: past ~10 Hz, require FAST/MT6701 speed ≥50% of open-loop within 100–200 ms;
+   abort on sustained angle error >1 rad or phase current over a prop-safe limit.
+3. **Conservative first-prop params:** `id_align=3, id_ramp=3, accel=2 Hz/s, handoff=35–45 Hz, err=0.20, timeout=20 s`.
+4. **Handoff dwell + blend** — require angle-error below threshold for ~50 ms + speed-sign coherence, and blend Id→0 /
+   Iq→throttle over 50–200 ms (the current one-tick Id→0, Iq→throttle step is a large vector bump under load).
+5. **Atomic setpoint** — snapshot `IdqSet_A` + arm flag under interrupt lock (1 ms tick vs ISR read is unguarded).
+6. Confirm C89/C99 dialect for `bool`; reuse one `cosf/sinf` phasor per ISR; profile trig cost at 20 kHz.
 
 1. **Rails + clock**: power 3V3/5V/12V only (no motor). Confirm **SYSCLK = 100 MHz** (toggle a
    GPIO at a known divide, scope it) — proves `IMULT(20)`. If it reads 50 MHz the resonator
