@@ -128,32 +128,47 @@ MATH_Vec2 IdqSet_A = {0.0, 0.0};   //!< product-driven Iq reference (Amps)
 //! coheres with the open-loop angle, then HANDS OFF to the normal FAST-angle + throttle-Iq path.
 //! Bench-proven on is04 (align 3 A, ramp to 30-50 Hz, FAST locks with <7 deg angle error). Params are
 //! live-tunable over DSS. enable=0 -> exact legacy behavior (FAST angle from standstill, no override).
-typedef enum { SU_IDLE = 0, SU_ALIGN = 1, SU_RAMP = 2, SU_RUN = 3, SU_FAULT = 4 } su_state_t;
+typedef enum { SU_IDLE=0, SU_ALIGN=1, SU_RAMP=2, SU_BLEND=3, SU_RUN=4, SU_FAULT=5 } su_state_t;
 typedef struct {
     uint16_t   enable;                  //!< 1 = run the open-loop I/f startup; 0 = legacy FAST-angle path
     su_state_t state;                   //!< current startup state
     float32_t  angle_rad;               //!< open-loop electrical angle output (ALIGN/RAMP)
     float32_t  freq_Hz;                 //!< current open-loop electrical frequency
+    float32_t  blend;                   //!< 0..1 handoff current-blend fraction (SU_BLEND)
     uint32_t   tick;                    //!< ISR ticks elapsed in the current state
-    uint16_t   fault;                   //!< 1 = startup stalled (ramp timeout without FAST handoff)
+    uint32_t   cohTick;                 //!< consecutive coherent ticks (handoff dwell)
+    uint32_t   slipTick;                //!< consecutive slip ticks (ramp slip guard)
+    uint16_t   fault;                   //!< 1 = startup stalled -> SU_FAULT (safe-off at ISR site)
     // --- live-tunable parameters (DSS) ---
     float32_t  id_align_A;              //!< d-axis align current (rotor lock)
-    float32_t  id_ramp_A;              //!< d-axis current held during the open-loop ramp
+    float32_t  id_ramp_A;               //!< d-axis current held during the open-loop ramp
     float32_t  align_s;                 //!< align dwell time, s
-    float32_t  accel_Hzps;              //!< open-loop ramp rate, electrical Hz/s
+    float32_t  accel_Hzps;              //!< open-loop ramp rate, electrical Hz/s (PROP: use ~2.0)
     float32_t  handoff_Hz;              //!< min open-loop freq before handoff is allowed
     float32_t  handoff_err_rad;         //!< max |FAST angle - open-loop angle| for handoff
-    float32_t  timeout_s;               //!< ramp watchdog: no handoff by here -> SU_FAULT (coast)
+    float32_t  dwell_s;                 //!< coherence must hold this long before handoff
+    float32_t  blend_s;                 //!< SU_BLEND: ramp Id->0 / Iq->throttle over this time
+    float32_t  timeout_s;               //!< ramp watchdog: no handoff by here -> SU_FAULT
+    float32_t  slip_check_Hz;           //!< begin slip guard once open-loop freq exceeds this
+    float32_t  slip_frac;               //!< require FAST speed >= slip_frac * open-loop freq
+    float32_t  slip_win_s;              //!< slip must persist this long before SU_FAULT
+    float32_t  max_err_rad;             //!< sustained angle error over this -> SU_FAULT
 } su_t;
 su_t g_su = {
-    1u, SU_IDLE, 0.0f, 0.0f, 0u, 0u,
-    3.0f,   /* id_align_A   */
-    3.0f,   /* id_ramp_A    */
-    1.5f,   /* align_s      */
-    25.0f,  /* accel_Hzps   */
-    35.0f,  /* handoff_Hz   */
+    1u, SU_IDLE, 0.0f, 0.0f, 0.0f, 0u, 0u, 0u, 0u,
+    3.0f,   /* id_align_A      */
+    3.0f,   /* id_ramp_A       */
+    1.5f,   /* align_s         */
+    25.0f,  /* accel_Hzps (no-load; PROP -> ~2.0) */
+    35.0f,  /* handoff_Hz      */
     0.35f,  /* handoff_err_rad (~20 deg) */
-    4.0f    /* timeout_s    */
+    0.05f,  /* dwell_s (50 ms) */
+    0.10f,  /* blend_s (100 ms)*/
+    4.0f,   /* timeout_s       */
+    10.0f,  /* slip_check_Hz   */
+    0.5f,   /* slip_frac       */
+    0.20f,  /* slip_win_s      */
+    1.0f    /* max_err_rad     */
 };
 
 #ifdef ESC6288_BENCH_THROTTLE
@@ -978,30 +993,29 @@ void main(void)
 
 } // end of main() function
 
-//! \brief Advance the open-loop I/f startup one ISR tick. Returns true when the ISR must OVERRIDE the
-//! FOC with the open-loop angle + d-axis current (ALIGN/RAMP/FAULT); false = normal FAST-angle path
-//! (IDLE/RUN, or enable==0). est_angle_rad is the live FAST electrical angle (for the handoff test).
-static inline bool startup_step(bool armed, float32_t est_angle_rad)
+//! \brief Advance the open-loop I/f startup one ISR tick (updates g_su.state). The ISR then applies the
+//! per-state FOC override: ALIGN/RAMP -> open-loop angle + open-loop-frame Id; BLEND -> FAST angle +
+//! blended current; RUN -> normal FAST path; FAULT -> safe-off. est_angle_rad / est_speed_Hz are the
+//! live FAST electrical angle/speed (Hz) used for the handoff and slip guards.
+static inline void startup_step(bool armed, float32_t est_angle_rad, float32_t est_speed_Hz)
 {
     const float32_t dt = 1.0f / USER_ISR_FREQ_Hz;
+    float32_t err;
 
     if(!armed)
-    {   // disarmed -> reset; legacy path
-        g_su.state = SU_IDLE;  g_su.freq_Hz = 0.0f;  g_su.angle_rad = 0.0f;  g_su.tick = 0u;
-        return false;
+    {   // disarmed -> reset all; legacy/idle
+        g_su.state = SU_IDLE;  g_su.freq_Hz = 0.0f;  g_su.angle_rad = 0.0f;  g_su.blend = 0.0f;
+        g_su.tick = 0u;  g_su.cohTick = 0u;  g_su.slipTick = 0u;
+        return;
     }
-    if(g_su.enable == 0u)
-    {   // I/f startup disabled -> exact legacy behavior (FAST angle from standstill)
-        g_su.state = SU_RUN;
-        return false;
-    }
+    if(g_su.enable == 0u) { g_su.state = SU_RUN; return; }   // disabled -> exact legacy behavior
 
     switch(g_su.state)
     {
         case SU_IDLE:                              // just armed -> begin alignment
-            g_su.state = SU_ALIGN;  g_su.tick = 0u;  g_su.freq_Hz = 0.0f;
-            g_su.angle_rad = 0.0f;  g_su.fault = 0u;
-            return true;
+            g_su.state = SU_ALIGN;  g_su.tick = 0u;  g_su.freq_Hz = 0.0f;  g_su.angle_rad = 0.0f;
+            g_su.blend = 0.0f;  g_su.cohTick = 0u;  g_su.slipTick = 0u;  g_su.fault = 0u;
+            return;
 
         case SU_ALIGN:                             // hold rotor at a known electrical angle
             g_su.angle_rad = 0.0f;
@@ -1009,35 +1023,56 @@ static inline bool startup_step(bool armed, float32_t est_angle_rad)
             {
                 g_su.state = SU_RAMP;  g_su.tick = 0u;
             }
-            return true;
+            return;
 
         case SU_RAMP:                              // open-loop electrical angle accelerates
-        {
-            float32_t err;
             g_su.freq_Hz += g_su.accel_Hzps * dt;
             g_su.angle_rad = MATH_incrAngle(g_su.angle_rad, g_su.freq_Hz * MATH_TWO_PI * dt);
-            err = est_angle_rad - g_su.angle_rad;  // wrapped |FAST angle - open-loop angle|
+            err = est_angle_rad - g_su.angle_rad;             // wrapped |FAST angle - open-loop angle|
             while(err >  MATH_PI) { err -= MATH_TWO_PI; }
             while(err < -MATH_PI) { err += MATH_TWO_PI; }
             if(err < 0.0f) { err = -err; }
-            if((g_su.freq_Hz >= g_su.handoff_Hz) && (err < g_su.handoff_err_rad))
+
+            // slip guard: past slip_check_Hz, the rotor (FAST speed) must track the open-loop freq and the
+            // angle error must stay bounded, else the rotor is slipping -> abort to safe-off (don't wait
+            // for the timeout; a slipping prop pulls high load-angle current and would OC first).
+            if(g_su.freq_Hz >= g_su.slip_check_Hz)
             {
-                g_su.state = SU_RUN;               // HANDOFF: FAST owns the angle from here
-                return false;
+                if((est_speed_Hz < (g_su.slip_frac * g_su.freq_Hz)) || (err > g_su.max_err_rad))
+                {
+                    if(++g_su.slipTick >= (uint32_t)(g_su.slip_win_s * USER_ISR_FREQ_Hz))
+                    {
+                        g_su.fault = 1u;  g_su.state = SU_FAULT;  return;
+                    }
+                }
+                else { g_su.slipTick = 0u; }
             }
+
+            // handoff: coherent (freq high, small angle error, same rotation sign) held for dwell_s
+            if((g_su.freq_Hz >= g_su.handoff_Hz) && (err < g_su.handoff_err_rad) && (est_speed_Hz > 0.0f))
+            {
+                if(++g_su.cohTick >= (uint32_t)(g_su.dwell_s * USER_ISR_FREQ_Hz))
+                {
+                    g_su.state = SU_BLEND;  g_su.blend = 0.0f;  g_su.tick = 0u;
+                }
+            }
+            else { g_su.cohTick = 0u; }
+
             if(++g_su.tick >= (uint32_t)(g_su.timeout_s * USER_ISR_FREQ_Hz))
             {
-                g_su.fault = 1u;  g_su.state = SU_FAULT;   // stalled: stop driving, coast
+                g_su.fault = 1u;  g_su.state = SU_FAULT;       // stalled: safe-off
             }
-            return true;
-        }
+            return;
 
-        case SU_FAULT:                             // hold: caller zeroes current until disarmed
-            return true;
+        case SU_BLEND:                             // FAST angle owns; blend Id->0 / Iq->throttle
+            g_su.blend += dt / g_su.blend_s;
+            if(g_su.blend >= 1.0f) { g_su.blend = 1.0f;  g_su.state = SU_RUN; }
+            return;
 
+        case SU_FAULT:                             // ISR forces OST safe-off + latches the fault
         case SU_RUN:
         default:
-            return false;                          // normal closed-loop (FAST angle + throttle Iq)
+            return;
     }
 }
 
@@ -1113,6 +1148,15 @@ __interrupt void mainISR(void)
         estInputData.speed_ref_Hz = motorVars.speedTraj_Hz;
         estInputData.speed_int_Hz = motorVars.speedTraj_Hz;
 
+        // During the open-loop startup, feed FAST the open-loop electrical frequency (previous tick)
+        // instead of the 0 Hz torque-mode trajectory, so its flux/angle observer converges to the
+        // rotor's actual motion and the handoff angle test is trustworthy.
+        if((g_su.state == SU_ALIGN) || (g_su.state == SU_RAMP))
+        {
+            estInputData.speed_ref_Hz = g_su.freq_Hz;
+            estInputData.speed_int_Hz = g_su.freq_Hz;
+        }
+
         EST_run(estHandle, &estInputData, &estOutputData);
 
         EST_getIdq_A(estHandle, (MATH_Vec2 *)(&(Idq_in_A)));
@@ -1121,23 +1165,37 @@ __interrupt void mainISR(void)
         Idq_ref_A.value[0] = IdqSet_A.value[0];
         Idq_ref_A.value[1] = IdqSet_A.value[1];
 
-        // open-loop I/f self-start (esc6288): drive a d-axis current at an open-loop angle until FAST
-        // coheres, then hand off. Overrides the throttle Iq only during ALIGN/RAMP (Iq=0), or forces
-        // zero current on a startup stall (SU_FAULT). No override in RUN -> normal torque path.
-        if(startup_step((motorVars.flagRunIdentAndOnLine != 0), estOutputData.angle_rad))
+        // open-loop I/f self-start (esc6288): ALIGN/RAMP drive Id at an open-loop angle until FAST
+        // coheres, then BLEND to the normal FAST-angle + throttle path. See g_su / startup_step().
+        startup_step((motorVars.flagRunIdentAndOnLine != 0), estOutputData.angle_rad,
+                     estOutputData.fm_lp_rps / MATH_TWO_PI);
+        if((g_su.state == SU_ALIGN) || (g_su.state == SU_RAMP))
         {
-            Idq_ref_A.value[0] = (g_su.state == SU_FAULT) ? 0.0f
-                               : (g_su.state == SU_ALIGN) ? g_su.id_align_A : g_su.id_ramp_A;
+            Idq_ref_A.value[0] = (g_su.state == SU_ALIGN) ? g_su.id_align_A : g_su.id_ramp_A;
             Idq_ref_A.value[1] = 0.0f;
 
             // Measure Idq in the OPEN-LOOP frame. EST_getIdq_A (above) uses the FAST angle, which is
             // force-held near 0 while our open-loop angle ramps -> feedback/drive frame mismatch ->
             // the current loop diverges -> OC. Re-Park the measured Iab onto our open-loop angle so the
-            // current-PI feedback matches the applied vector. (SU_FAULT drives Iq=Id=0, frame moot.)
+            // current-PI feedback matches the applied vector.
             phasor.value[0] = cosf(g_su.angle_rad);
             phasor.value[1] = sinf(g_su.angle_rad);
             PARK_setPhasor(parkHandle, &phasor);
             PARK_run(parkHandle, &(estInputData.Iab_A), (MATH_Vec2 *)(&(Idq_in_A)));
+        }
+        else if(g_su.state == SU_BLEND)
+        {   // FAST angle owns now (Idq_in_A already FAST-frame from EST_getIdq_A); blend the reference
+            // Id_ramp -> 0 and Iq 0 -> throttle over blend_s so the handoff is not a one-tick vector step.
+            Idq_ref_A.value[0] = (1.0f - g_su.blend) * g_su.id_ramp_A;
+            Idq_ref_A.value[1] = g_su.blend * IdqSet_A.value[1];
+        }
+        else if(g_su.state == SU_FAULT)
+        {   // startup stalled/slipped -> REAL safe-off: force OST now and latch the product fault so the
+            // main loop drops flagRunIdentAndOnLine (not just active zero-current control).
+            Idq_ref_A.value[0] = 0.0f;
+            Idq_ref_A.value[1] = 0.0f;
+            HAL_disablePWM(halHandle);
+            motorVars.faultNow.bit.moduleOverCurrent = 1;
         }
 
         EST_updateId_ref_A(estHandle, (float32_t *)&(Idq_ref_A.value[0]));

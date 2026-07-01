@@ -18,7 +18,7 @@ var TZFRC=[0x409B,0x419B,0x429B], TZFLG=[0x4093,0x4193,0x4293], OST=0x4;
 function forceOST(){ for(var i=0;i<3;i++){ try{ s.memory.writeData(Memory.Page.DATA,TZFRC[i],OST,16);}catch(x){} } }
 function ostStr(){ var r=""; for(var i=0;i<3;i++) r+=(((rd(TZFLG[i])&OST)!=0)?1:0)+(i<2?"/":""); return r; }
 function ostAllSet(){ return ((rd(TZFLG[0])&OST)!=0)&&((rd(TZFLG[1])&OST)!=0)&&((rd(TZFLG[2])&OST)!=0); }
-var ST=["IDLE","ALIGN","RAMP","RUN","FAULT"];
+var ST=["IDLE","ALIGN","RAMP","BLEND","RUN","FAULT"];
 var ccxml=arguments[0], out=arguments[1];
 var IQ=(arguments.length>2)?Number(arguments[2]):1.0;
 var RUNS=(arguments.length>3)?Number(arguments[3]):4;
@@ -46,10 +46,10 @@ s.target.runAsynch(); Thread.sleep(RUNS*1000); s.target.halt();
 p(">>> after "+RUNS+"s:");
 var r=rdsu("end");
 p("");
-if(r.st===3 && r.fl===0 && Math.abs(r.kr)>0.05){
+if(r.st===4 && r.fl===0 && Math.abs(r.kr)>0.05){
     p(">>> *** PRODUCT SELF-START OK: reached RUN (FAST handed off), spinning "+f(r.kr*1000,0)+" rpm, no fault ***");
-} else if(r.st===4){
-    p(">>> STARTUP STALLED (SU_FAULT): open-loop ramp did not get FAST to cohere within timeout. Tune g_su (slower accel / more id_ramp_A / lower handoff_Hz).");
+} else if(r.st===5){
+    p(">>> STARTUP STALLED (SU_FAULT): open-loop ramp did not cohere / slipped (safe-off). Tune g_su (slower accel / more id_ramp_A / lower handoff_Hz).");
 } else {
     p(">>> state="+(ST[r.st]||r.st)+" speed="+f(r.kr*1000,0)+"rpm -- not a clean handoff; inspect.");
 }
