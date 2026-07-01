@@ -12,28 +12,32 @@ rated current/voltage, maximum speed, inertia, etc. Swapping a motor means swapp
 
 ## Supported Motors (custom NovaX/AM series, 4 models)
 4 profiles are created and selectable. **Geometric pole pairs are filled** (4116=7, 62xx=14).
-The **4116 profiles are back-filled from verified legacy FAST ID** (spin-confirmed, see below); the
-**62xx Rs/Ls/flux are still bench seeds** — run is05 and back-fill measured values:
-- [x] `am_4116_kv450.h` (KV450 wind, 7 pp) — Rs/Ls/flux from legacy FAST ID (esc_drv8300, 2026-06-05, spin-confirmed KV~450)
+The **4116 KV450 profile now carries esc6288/current-scale-corrected values** (is05 completed on esc6288, 2026-07-01): Rs 0.0213 Ω (phase-neutral; bench line-line 42–43 mΩ / 2), Ls 30.0 µH (re-IDed after current-scale correction), flux ~0.012 V/Hz (consistent with the KV450 wind/profile; KV450 is a nameplate term, not a directly-measured rpm/V). The **62xx Rs/Ls/flux are still bench seeds** — run is05 and back-fill measured values:
+- [x] `am_4116_kv450.h` (KV450 wind, 7 pp) — Rs/Ls/flux from esc6288 is05, 2026-07-01 (current-scale-corrected: Rs 0.0213 Ω phase-neutral, Ls 30.0 µH, flux ~0.012 V/Hz)
 - [x] `am_4116_kvb.h` (KV470 wind, 7 pp) — Rs/Ls/flux from legacy FAST re-ID (esc_drv8300, 2026-06-11)
 - [ ] `am_6212.h` (14 pole pairs)
 - [ ] `am_6215.h` (14 pole pairs)
 
 > **AM-4116 note:** is05 on the launchxl is NOT the back-fill path for the 4116 — FAST ID there hits
-> the BOOSTXL-DRV8305 over-current protection (the ~40 mOhm motor draws an instant ID-startup current
-> transient past the launchxl CMPSS trip / its +-23.57 A sense ceiling). The 4116 params instead come
-> from the legacy esc_drv8300 board, which identified them with a motor-appropriate (~40-58 A) OC trip
-> and confirmed the flux by a free-shaft spin. On the launchxl, the 4116 is limited to small-Iq
-> low-load sanity (is06); full-power running belongs to esc6288. The 62xx still follow the is05 flow.
+> the BOOSTXL-DRV8305 over-current protection (the ~40 mOhm line-line motor draws an instant
+> ID-startup current transient past the launchxl CMPSS trip / its +-23.57 A sense ceiling). The
+> esc6288 shunt/CMPSS are sized for this motor, and is05 now COMPLETES on esc6288 (continuous
+> execution — halt-sampling desyncs the Ls phase). Runner: `tools/flash/esc6288_revA/run_is05_esc6288.js`.
+> The 2026-07-01 esc6288 is05 result (with current-scale corrected to 254 A) is the authoritative
+> back-fill: Rs 0.0213 Ω (phase-neutral), Ls 30.0 µH, flux ~0.012 V/Hz. On the launchxl, the 4116
+> is limited to small-Iq low-load sanity (is06); full-power ID and running belong to esc6288. The
+> 62xx still follow the is05 flow.
 
 > Macro names aligned with SDK 6.0 `USER_MOTOR_*`. Operating range fields (FREQ/VOLT/rated) and inertia are placeholders; adjust per motor and power supply.
 > Full decoupling (board carries only hardware-scaling macros, completely free of motor examples) can be cleaned up later; the current "wrap-and-skip" approach is sufficient.
 
-> The legacy project (`../esc_drv8300_foc`) contains parameters for these motors. The **4116 values
-> have been re-identified and spin-confirmed** there (the earlier "flux offset" was a 2x readout-scale
-> error, since resolved) and are now back-filled above — they are trustworthy. The **6212/6215 legacy
-> profiles still have known cross-contamination** — for those, re-identify on hardware with is05 in
-> this project rather than reusing the legacy numbers.
+> The legacy project (`../esc_drv8300_foc`) contains earlier parameters for these motors. The **4116
+> legacy values are superseded**: the legacy Rs (0.0403 Ω) was a line-line value from the MotorWare
+> pu→Ω recipe, not phase-neutral (correct phase-neutral = 0.0213 Ω); the legacy/old-scale Ls was
+> identified under the uncorrected 330 A current scale and is superseded by the 2026-07-01 esc6288
+> correction (30.0 µH). Use the values in `am_4116_kv450.h` (esc6288 is05, 2026-07-01). The
+> **6212/6215 legacy profiles still have known cross-contamination** — for those, re-identify on
+> hardware with is05 in this project rather than reusing the legacy numbers.
 
 ## Standard Workflow: Select Motor → is05 Identification → Back-fill → Tune Loops
 The product target is `esc6288_revA`. Run motor identification only after the esc6288 staged

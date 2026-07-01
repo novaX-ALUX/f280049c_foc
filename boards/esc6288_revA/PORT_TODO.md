@@ -19,7 +19,8 @@ header comment in `drivers/include/board.h`.
 - **PWM**: phase A=EPWM1 (GPIO0/1), B=EPWM2 (GPIO2/3), C=EPWM3 (GPIO4/5); `PWM_PHASE_ORDER`
   default 0=ABC. Dead-band 20 cnt (~200 ns) — extra margin ON TOP of the JSM6288T's own
   built-in ~200 ns anti-shoot-through dead time + interlock (datasheet); see the bench item.
-- **Current**: `USER_ADC_FULL_SCALE_CURRENT_A = 330` (±165 A), offsets −165 A; PGAs disabled
+- **Current**: `USER_ADC_FULL_SCALE_CURRENT_A = 254` (±127 A), offsets −127 A (corrected 2026-07-01 from the
+  BOM-theory 330 A/±165 A after the sense was bench-proven to over-read 1.30×; see the cal note below); PGAs disabled
   (external INA path). IA=ADCINB15, IB=ADCINA1, IC=ADCINC2 (distinct cores).
 - **Voltage**: `USER_ADC_FULL_SCALE_VOLTAGE_V = 102.63`; Udc=ADCINA6, UA/UB/UC=B6/B3/C6.
 - **DAC outputs disabled** in `HAL_setupDACs` — DACA_OUT/DACB_OUT share the IA/IB sense pads
@@ -49,7 +50,8 @@ header comment in `drivers/include/board.h`.
   fault, dead-band clean on the scope. Then iq=1.0 A with a continuous flick window: a hand-flick bootstrapped
   the sensorless FAST estimator and the rotor **held ~4 krpm (≈466 Hz elec) for 12 s, zero faults during the
   spin**. Validates the full chain: power stage → current sense (on the VREFLO bodge) → current loop → FAST →
-  dead-band. NOTE the sensorless cold-start needs the flick (Iq alone ≤0.5 A did not break standstill), and a
+  dead-band. NOTE this stock-is06 FAST-angle first spin needs the flick (Iq alone ≤0.5 A did not break standstill;
+  the product now self-starts with no flick via the open-loop I/f state machine — see the cold-start section), and a
   debugger gate-cut of the spinning motor latches `moduleOverCurrent` (faultUse=16) on the transient — BENIGN
   (the hardware OC path firing end-to-end, safe-off achieved). Motor-coupled `dir`/`zero_offset` tuning is next.
 - **5 protection — PASS (comparator-level).** CMPSS3/CMPSS5 latch baseline clean; `force=tz` (software TZFRC OST)
@@ -57,8 +59,10 @@ header comment in `drivers/include/board.h`.
   (bus-OV CMPSS5 @ ADCINA6 ~479; phase-C OC CMPSS3 @ ADCINC2 ~2034), DAC restored after. The CMPSS→X-BAR→OST
   end-to-end trip (`inject=oc/ov`, real OC/OV) is still **PENDING** — defer to first-spin.
 - **6 peripherals — PARTIAL.** **Encoder MT6701 — PASS:** SPIA + HT0104 path confirmed (`g_enc.valid=1`,
-  clean SSI decode, `position_rev` tracks the magnet — see the MT6701 item). **CAN — PASS (against an ArduPilot/AF-H7E flight
-  controller).** Bit timing confirmed 1.000 Mbit (CAN_BTR); with the FC on the bus the esc6288 completed **DNA
+  clean SSI decode, `position_rev` tracks the magnet — see the MT6701 item). **CAN bus/protocol — PASS (against an
+  ArduPilot/AF-H7E flight controller);** the CAN-throttle→motor RawCommand drive path is NOT yet hardware-validated
+  (bench self-start uses the gated `ESC6288_BENCH_THROTTLE` hook / DSS). Bit timing confirmed 1.000 Mbit (CAN_BTR);
+  with the FC on the bus the esc6288 completed **DNA
   (`g_dn.node_id=124`)**, TX drains (`s_tx` head==tail, `in_flight=0`, `TEC=0`, no `LEC` error), and RX advances
   (receiving FC frames). NOTE: a bare USB-CAN adapter that is merely enumerated does **not** ACK (it gave
   `LEC=ACK error` / `TEC=128` / error-passive until a real ACKing node was attached) — use the FC (or bring the
@@ -78,14 +82,17 @@ header comment in `drivers/include/board.h`.
 Full FAST identification of the 4116 ran to `flagMotorIdentified=1` on esc6288 (5 completed runs, faultUse=0).
 The lab's own ID sequence (RoverL→Rs→RampUp→Flux→Ls) needs **continuous execution** — halt-sampling over DSS
 desyncs the fragile Ls phase. `run_is05_esc6288.js` runs the ID uninterrupted (~160 s, EST flux+Ls wait tables
-need ~100 s) and halts once at the end. Repeatable results (median of 4): **Rs≈0.0164 Ω, Ls≈23.5 µH,
-flux≈0.0128 V/Hz**.
-- **flux 0.0128 ≈ profile 0.012** → KV450 confirmed on real hardware.
+need ~100 s) and halts once at the end. Repeatable results (median of 4, **under the uncorrected 330 A scale**):
+Rs≈0.0164 Ω, Ls≈23.5 µH, flux≈0.0128 V/Hz — the current-dependent values are corrected below (the current sense
+over-reads 1.30×); flux is current-independent and stands.
+- **flux 0.0128 ≈ profile 0.012** → consistent with the KV450 wind/profile (nameplate KV — NOT a direct 450 rpm/V
+  reading; the flux-implied effective KV is ~390–410 rpm/V, sinusoidal). KV-class confirmed on real hardware.
 - **Rs mystery resolved (Codex, verdict B):** the legacy profile `0.0403` was the **LINE-LINE** value (the MotorWare
   pu→Ω recipe `Rs_pu/2^30 × Vfs/Ifs × 2^(30−qFmt)` = 0.0401 = bench line-line 42–43 mΩ), NOT the phase-to-neutral
   the FOC model wants. Both MotorWare and SDK6 FAST use phase-to-neutral; SDK6's direct getter is correct.
   `motors/am_4116_kv450.h` Rs corrected `0.0403 → 0.0213` (bench line-line/2).
-- **Ls corrected `33.6 → 23.5 µH`** (esc6288 ID median; old 33.6 was the same suspect recipe).
+- **Ls corrected `33.6 → 30.0 µH`** (23.5 µH was the raw is05 median under the uncorrected 330 A scale; after the
+  current-scale fix below the ID reads ~30.0 µH; the old 33.6 came from the same suspect legacy recipe).
 - **RESOLVED (2026-07-01) — current sense over-reads 1.30×.** The current-scale ambiguity is settled: re-ran the
   is05 Rs-ID at **8 A** inject and Rs stayed **0.0164 Ω** (identical to the 4 A runs) — a low-signal artifact would
   have risen toward the meter value, so it is a fixed **gain error**: `k = R_meter(0.0213) / Rs_fw(0.0164) = 1.30`.
@@ -107,7 +114,8 @@ deterministic rotor **align + open-loop I/f ramp** before FAST takes over.
 standstill, FAST locks with 2–7° angle error, accel 10–40 Hz/s / id 2–3 A / handoff 30–50 Hz — wide no-load
 envelope). The startup is now a **state machine in the product firmware** (`product/product_main.c`, `g_su` +
 `startup_step()`): `SU_IDLE → SU_ALIGN (hold Id at angle 0) → SU_RAMP (open-loop angle ramps at accel, hold Id) →
-SU_RUN (hand off to FAST angle + throttle Iq when freq≥handoff_Hz AND |FAST angle − open-loop angle|<thresh)`.
+SU_BLEND (FAST angle owns; blend Id→0 / Iq→throttle over blend_s) → SU_RUN` — handoff into BLEND when freq≥handoff_Hz
+AND |FAST angle − open-loop angle|<thresh AND +speed sign, held for dwell_s (a slip guard / SU_FAULT covers stall).
 Live-tunable via DSS (`g_su.*`); `g_su.enable=0` = exact legacy behavior. **KEY FIX:** during ALIGN/RAMP the ISR
 re-PARKs the measured `Iab` onto the **open-loop angle** (not `EST_getIdq_A`'s FAST angle, which is force-held near
 0 while the open-loop angle ramps) — without this the current-PI feedback frame is mismatched with the applied

@@ -5,10 +5,18 @@ DSS stage scripts + bench probes for esc6288_revA bring-up, run **in order**, mi
 prints explicit pass / stop conditions so bring-up is "follow the steps", not "improvise".
 
 > **2026-06-30:** s1/s2/s3/s5/s5b/s6 have run on the first prototype — all PASS (one board defect found
-> + bodged, see the VREFLO note in `PORT_TODO.md`). s6: encoder MT6701, CAN-to-flight-controller, and the
-> RGB boot sweep all verified. **s4 (first spin) done** — sustained ~4 krpm, zero faults (`run_is06_esc6288.js`).
-> The hardware OC path was confirmed end-to-end (gate-cut transient); OV injection and motor-coupled tuning
-> remain. Expect to keep tuning thresholds/timing at the bench.
+> + bodged, see the VREFLO note in `PORT_TODO.md`). s6: encoder MT6701 (SPIA + HT0104, POL1PHA0 SSI,
+> manual CSN, live 14-bit decode), CAN-to-flight-controller (ArduPilot/AF-H7E, DNA/TX/RX verified), and
+> the RGB boot sweep all confirmed. **s4 (first spin) done** — sustained ~4 krpm, zero faults
+> (`run_is06_esc6288.js`). The hardware OC path confirmed end-to-end (gate-cut transient); OV injection
+> and motor-coupled tuning remain.
+>
+> **2026-07-01:** is05 FAST motor ID completed on esc6288 (runner `run_is05_esc6288.js`; continuous
+> execution — halt-sampling desyncs the Ls phase). Current-scale corrected to 254 A
+> (`USER_ADC_FULL_SCALE_CURRENT_A` 330→254, offsets −165→−127); Rs 0.0213 Ω (phase-neutral), Ls
+> 30.0 µH back-filled into `am_4116_kv450.h`. Product open-loop I/f self-start validated at 12 V /
+> no prop (`run_selfstart_esc6288.js`): SU_ALIGN → SU_RAMP → SU_BLEND → SU_RUN handoff to FAST with
+> **no hand-flick**, zero faults. Safe-off verified via `run_slipguard_esc6288.js`.
 
 ## Two hard safety rules (enforced in every script)
 
@@ -80,6 +88,27 @@ There is also a gated **RGB self-test**: build the product with `EXTRA_DEFINES="
 (the `#ifdef` block after `RGB_init()` in `product/product_main.c`) and watch RGB1 sweep R→G→B→white→off
 at boot — verifies the GPIO12→SN74LVC1T45→WS2812 path. Off by default.
 
+## Lab and product runners
+
+SDK lab runners and product scripts (all in `tools/flash/esc6288_revA/`; no `run_ical` — the
+current-scale cal was done through is05 at 8 A, not a separate runner):
+
+| script | purpose |
+|---|---|
+| `check_is01_esc6288.js` | SAFETY-ONLY is01 check — HAL up, OST set, no switching |
+| `cal_is02_esc6288.js` | is02 offset/gain cal, read back offsets (one-shot, gate stays OST) |
+| `run_is04_esc6288.js` | is04 signal chain (open-loop I/f, no FAST) |
+| `run_is05_esc6288.js` | is05 FAST motor ID to completion (Rs/Ls/flux); run continuously — halts desync Ls phase |
+| `run_is06_esc6288.js` | is06 torque control first-spin (guarded; hand-flick bootstraps FAST) |
+| `run_is07_esc6288.js` | is07 speed control |
+| `run_iftest_esc6288.js` | is04 open-loop I/f rig (characterize I/f drag without FAST) |
+| `run_selfstart_esc6288.js` | product open-loop I/f self-start (SU_ALIGN→SU_RAMP→SU_BLEND→SU_RUN; no hand-flick) |
+| `run_slipguard_esc6288.js` | slip-guard / safe-off validator |
+| `s5b_route.js` | CMPSS comparator/route test, no injection (read-only) |
+| `enc_probe.js` | breakpoints MT6701_SSI_read(), dumps decoded SSI frame |
+| `can_es.js` | CANA error/status (LEC, TEC/REC, EPASS/BOFF, BTR) |
+| `can_probe.js` | TX/RX FIFO movement + `g_dn.node_id` (pass file-static addrs) |
+
 ## Stage 4 (first spin) — `run_is06_esc6288.js` (DONE 2026-06-30)
 
 `run_is06_esc6288.js <ccxml> <is06_torque_control.out> [iq_A] [flick_s]` is the first-spin runner
@@ -98,3 +127,21 @@ Manual stop conditions to honour at first spin:
   non-overlap on the scope before closing the loop (do not trust the additive number).
 - Phase-A/B **software** OC (no CMPSS) only arms with PWM live — verify it there, not in stage 5.
 - Abort to safe-off (force OST) on any fault latch.
+
+## Product open-loop I/f self-start — `run_selfstart_esc6288.js` (DONE 2026-07-01)
+
+The stock is06 path (above) requires a **hand-flick** to bootstrap the sensorless FAST estimator from
+standstill. The product firmware (`product/product_main.c`, `g_su`) solves this via an open-loop I/f
+startup state machine gated by `ESC6288_BENCH_THROTTLE`:
+
+```
+SU_ALIGN → SU_RAMP (open-loop I/f ramp) → SU_BLEND → SU_RUN (hand off to FAST)
+```
+
+`run_selfstart_esc6288.js <ccxml> <product.out> [iq_A]` arms the product image and drives it through
+the I/f startup sequence. **Validated 2026-07-01 at 12 V / no prop:** self-starts with NO hand-flick,
+zero faults, clean FAST handoff. Safe-off on exit is verified by `run_slipguard_esc6288.js`.
+
+> The stock is06 path (hand-flick required) is still the first-spin reference for FAST baseline and
+> scope verification. The I/f self-start is the product startup path; is06 is not replaced, only
+> augmented.

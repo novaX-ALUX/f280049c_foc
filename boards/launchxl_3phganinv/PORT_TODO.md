@@ -68,7 +68,7 @@ Hardware bring-up of the new board **succeeded**. Validated over the XDS110/DSS 
   VdcBus 24 V, voltage offsets valid with the bus on.
 - **Dead-band:** scoped non-overlap ~200 ns at 0 V bus.
 - **is06 @ 24 V:** power stage switches with NO shoot-through (fault-free), current loop closes (Iq
-  tracks command), flux ≈ 0.0128 ≈ KV450 → correct motor profile. Iq ≤ 0.5 A would not break the rotor
+  tracks command), flux ≈ 0.0128, consistent with the KV450 wind/profile (KV450 is the nameplate wind term, not a directly-measured rpm/V) → correct motor profile. Iq ≤ 0.5 A would not break the rotor
   loose from standstill (torque mode, no rotating reference).
 - **is07 speed control (run_is07_3phganinv.js, Iq capped 1.5 A):** the motor **spins** and follows the
   commanded direction (+ref → CW, −ref → CCW), but roughly, and **FAST never locks** — estimated speed
@@ -86,7 +86,7 @@ sweeping (PWM_PHASE_ORDER=2 drew ~10 A at 24 V in a wrong frame). Suggested orde
    confirm PWM phase order × current-sense phase mapping are self-consistent and which direction is +.
 3. Then settle the **current_sf sign** (only change from the proven DRV8305 config) against a known
    current; fix offset sign to match.
-4. Verify motor params (the 4116 Rs/Ls/flux came from a legacy esc_drv8300 ID) — re-ID if needed for
+4. Verify motor params — the shared `am_4116_kv450` profile now carries esc6288/current-scale-corrected values (Rs 0.0213 Ω phase-neutral, Ls 30.0 µH, flux ~0.012 V/Hz; esc6288 is05, 2026-07-01). This board is paused; re-ID here if/when resumed — re-ID if needed for
    FAST to lock; FAST is weak at the ~20 Hz we tried, so also test at higher speed.
 5. Restore `USER_MOTOR_MAX_CURRENT_A` (reverted to 8.0) / speed-loop gains and re-tune.
 Helpers added this session: `tools/flash/3phganinv/{check_3phganinv_is01,cal_is02_3phganinv,scope_deadtime_3phganinv,run_is06_3phganinv,run_is07_3phganinv}.js`.
@@ -95,7 +95,7 @@ Helpers added this session: `tools/flash/3phganinv/{check_3phganinv_is01,cal_is0
 
 **Do NOT run is01→is13 in sequence.** This board did run on hardware (see the 2026-06-24 bench
 results above), but FAST never locked cleanly and the platform is paused. The LMG5200 has no
-internal dead-time, and the AM-4116 (~40 mΩ) is unsafe on two stock labs (below). If this board is
+internal dead-time, and the AM-4116 (line-line ~42–43 mΩ, phase-neutral 0.0213 Ω) is unsafe on two stock labs (below). If this board is
 ever resumed, treat the list below as the historical safe-order baseline, not as the current product
 bring-up path.
 
@@ -104,7 +104,7 @@ Two hardware facts confirmed against the code (drive the order):
   `#ifdef DRV8320_SPI` (e.g. `is01_intro_hal.c:423`, `is06_torque_control.c:416`); this board defines
   no SPI macro (`build.sh:127`). So "it compiles" ≠ "PWM reaches the LMG5200". The gate buffer must be
   enabled explicitly — the `*_3phganinv.js` helpers below drive **GPIO39 LOW (active-low nEn_uC)**.
-- **AM-4116 unsafe on is03 V/f and is05 ID here.** is03 scalar V/f puts `VOLT_MIN_V` across ~40 mΩ ≈
+- **AM-4116 unsafe on is03 V/f and is05 ID here.** is03 scalar V/f puts `VOLT_MIN_V` across the line-line resistance ~42–43 mΩ (phase-neutral 0.0213 Ω) ≈
   instant over-current (`am_4116_kv450.h:46`); is05 FAST-ID startup transient exceeds this board's
   ±16.5 A sense ceiling (tighter than the DRV8305 EVM). See `product/BENCH.md`, `motors/README.md`.
 

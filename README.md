@@ -23,7 +23,7 @@ shared regression that affects `esc6288_revA`.
 
 - MCU: **TMS320F280049C** (F28004x, 100 MHz, FPU + **TMU**, 256 KB Flash /
   100 KB RAM)
-- Product board: **`esc6288_revA`**, custom 12S ESC, currently at fab
+- Product board: **`esc6288_revA`**, custom 12S ESC, first prototype on the bench
 - Gate driver: **JSM6288T**, six independent inputs, no EN pin, no nFAULT pin,
   internal anti-shoot-through interlock + dead time
 - Safe-off model: ePWM trip-zone one-shot (**OST**) is the gate-disable
@@ -40,9 +40,13 @@ shared regression that affects `esc6288_revA`.
   esc6288.
 - Pure `src/` modules are host-tested and cross-compiled as a zero-warning gate.
 - CAN bridge/comms and product glue have dedicated cross-compile gates.
-- Bring-up scripts for non-spinning stages are written under
-  `tools/flash/esc6288_revA/` and syntax-checked. They have not run on hardware
-  yet because the board has not returned from fab.
+- Bring-up scripts under `tools/flash/esc6288_revA/` are written and have run on the
+  first prototype (bench work 2026-06-30/07-01). Bench-proven at 12 V / no prop:
+  rails/clock, ADC, protection, MT6701 encoder (SPIA + HT0104, live SSI decode), CAN
+  bus/DNA/TX/RX (against ArduPilot/AF-H7E FC), RGB, first spin (is06 hand-flick),
+  is05 FAST motor ID, and product open-loop I/f self-start (no flick). Pending:
+  CAN-throttle→motor RawCommand drive (not HW-validated), 15" prop/loaded validation,
+  current-scale rev-B HW check, Flash persistence, auto-park.
 
 Implemented esc6288-facing software:
 
@@ -59,12 +63,14 @@ Implemented esc6288-facing software:
 - esc6288 staged bring-up DSS scripts for rails/clock, idle/OST, ADC,
   protection, and peripherals
 
-Hardware-dependent items intentionally deferred until the prototype is on the
-bench:
+Hardware-dependent items still pending after the 2026-06-30/07-01 bench session:
 
-- Stage 4 first-spin script and any real PWM output beyond explicit OST tests
-- JSM6288T/MCU dead-time final tuning by oscilloscope
-- MT6701 SSI polarity/timing and encoder zero/dir tuning
+- CAN-throttle→motor RawCommand drive (not yet hardware-validated end-to-end)
+- 15" prop / loaded validation (all bench work at 12 V, no prop)
+- Current-scale rev-B HW check (shunt/gain vs BOM; current scale corrected to 254 A
+  via bench cal, but the BOM 330 A / 0.5 mΩ figure remains a rev-B audit item)
+- JSM6288T/MCU dead-time final scope validation under load
+- MT6701 motor-coupled dir / zero-offset tuning (bus read confirmed; only coupling remains)
 - Real Flash erase/program for `nvparam`
 - Speed-loop ISR consumption/tuning, auto-park enable, active brake, and flight
   current/temperature thresholds
@@ -96,7 +102,7 @@ out of scope and `build.sh` rejects it.
 
 | Board (`BOARD=`) | Role now | Gate driver | Current sensing | Status |
 |---|---|---|---|---|
-| `esc6288_revA` | **Product target** | JSM6288T, 6-input, no EN/nFAULT, internal interlock + DT | 3x INA181A1 over 0.5 mohm shunts | Schematic/netlist port complete; product and lab build gates green; bench verification pending |
+| `esc6288_revA` | **Product target** | JSM6288T, 6-input, no EN/nFAULT, internal interlock + DT | 3x INA181A1 over 0.5 mohm shunts | First prototype bench-proven at 12 V / no prop (2026-06-30/07-01): rails/clock, ADC, protection, MT6701 encoder, CAN bus/DNA/TX/RX, RGB, first spin (is06), is05 FAST ID, product I/f self-start. CAN-throttle→motor drive + prop/loaded still pending. |
 | `launchxl_drv8305evm` | On-hold validation/regression board | DRV8305 SPI gate driver / integrated CSA | DRV8305 CSA to ADC | Historical bring-up notes retained; no new feature work planned |
 | `launchxl_3phganinv` | On-hold validation/regression board | LMG5200 GaN half-bridges via buffer | INA240 over 5 mohm in-line shunts | Buildable regression path; bench work paused |
 
@@ -184,9 +190,11 @@ dss.sh tools/flash/esc6288_revA/s5_protection.js  tools/flash/common/f280049c_xd
 dss.sh tools/flash/esc6288_revA/s6_peripherals.js tools/flash/common/f280049c_xds110.ccxml <product.out>
 ```
 
-Run them in order when the prototype returns. Stage 4 (first spin) is
-deliberately not scripted yet; write it only after stages 1/2/3/5/6 have passed
-on real hardware and the oscilloscope conditions are clear.
+All stages ran on the first prototype (2026-06-30). Stage 4 first-spin runs via
+`run_is06_esc6288.js` (is06 torque lab, hand-flick at 12 V). Product open-loop I/f
+self-start runs via `run_selfstart_esc6288.js` (no flick, validated at 12 V / no prop).
+See `tools/flash/esc6288_revA/README.md` for the full current runner inventory and
+pass conditions.
 
 ## Future Product Backlog
 

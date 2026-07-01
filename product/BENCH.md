@@ -161,17 +161,19 @@ chain) → is05 (motor ID)** — don't trust is05's Rs/Ls/flux until is02/is03 p
 ### EXCEPTION — AM-4116 (and any sub-~50 mOhm motor): skip is03 V/f, and is05 won't ID here
 
 is03 is scalar **V/f open-loop**: it puts `USER_MOTOR_VOLT_MIN_V` straight across the winding at
-standstill. For the 4116 (~40 mOhm) that is `4.0 V / 0.04 Ohm ~ 100 A` — an instant over-current; the
-launchxl CMPSS (correctly) trips in microseconds (the charged 25 V bus cap supplies the spike before
-the PSU foldback responds). **Do NOT run is03 V/f for the 4116** — it is not a meaningful step for a
-low-Rs motor; confirm phase order under FAST/current control instead.
+standstill. For the 4116 (line-line ~42–43 mΩ, phase-neutral 0.0213 Ω) that is
+`4.0 V / 0.042 Ohm ~ 95 A` — an instant over-current; the launchxl CMPSS (correctly) trips in
+microseconds (the charged 25 V bus cap supplies the spike before the PSU foldback responds).
+**Do NOT run is03 V/f for the 4116** — it is not a meaningful step for a low-Rs motor; confirm
+phase order under FAST/current control instead.
 
 is05 (FAST ID) also will not complete on the launchxl for the 4116: the ID-startup current transient
 exceeds the launchxl CMPSS trip and its **+-23.57 A current-sense ceiling** (7 mOhm shunt x CSA gain
-10). The 4116 profiles are therefore **back-filled from the verified legacy esc_drv8300 FAST ID**
-(see `motors/README.md`), not re-identified here. On the launchxl, exercise the 4116 only with small
-Iq, low-load sanity (is06 / product torque path); full-power ID and running belong to esc6288, whose
-shunt/CMPSS are sized for this motor. The 62xx (higher Rs) still follow the normal is02→is05 flow.
+10). The 4116 params in `am_4116_kv450.h` now come from **esc6288 is05, 2026-07-01** (current-scale
+corrected to 254 A; see `motors/README.md`), not the legacy esc_drv8300 back-fill. On the launchxl,
+exercise the 4116 only with small Iq, low-load sanity (is06 / product torque path); full-power ID
+and running belong to esc6288, whose shunt/CMPSS are sized for this motor. The 62xx (higher Rs)
+still follow the normal is02→is05 flow.
 
 For the 4116 is06 sanity path, use the dedicated guarded runner:
 
@@ -183,7 +185,7 @@ BOARD=launchxl_drv8305evm MOTOR=am_4116_kv450 LAB=is06_torque_control bash build
 
 Hardware result after CMPSS route + blanking cleanup: at 24 V bus, `run_is06.js` completed the full
 ~9 s window at Iq=0.2 A and Iq=1.0 A with `faultUse.all=0`. FAST online flux averaged close to the
-KVA/KV450 profile (`~0.012 V/Hz`). Treat that as a low-load sanity check only; full-power operation
+KV450 wind/profile (flux ~0.012 V/Hz; the effective KV is not directly 450 rpm/V — KV450 is the nameplate wind term). Treat that as a low-load sanity check only; full-power operation
 and final protection thresholds are esc6288 work.
 
 ### is02 uses a dedicated script (`cal_is02.js`), not the generic gate-prep

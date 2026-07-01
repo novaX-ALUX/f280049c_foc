@@ -72,19 +72,28 @@ speed — see `boards/launchxl_3phganinv/PORT_TODO.md`. Historical safe-order sc
 
 ## esc6288_revA/ — ESC6288 rev A (JSM6288T, no EN / no nFAULT)
 
-Primary target. Ordered bring-up stage scripts (run in sequence the day the board returns) — see
+Primary target. First prototype bench-run (2026-06-30/07-01) — all stages PASS. See
 `esc6288_revA/README.md` for the full runbook, pass/stop conditions, and the two hard safety rules
 (default observe-only; any un-trip/PWM behind an explicit arg with unconditional safe-off on exit).
 Safe-off here is the EPWM trip-zone (OST), since the JSM6288T has no gate-enable pin.
 
-| script | stage (PORT_TODO step) |
+| script | purpose |
 |---|---|
 | `s1_rails_clock.js` | rails + clock (SYSCLK ~100 MHz via tick/wall ratio) |
 | `s2_idle_ost.js` | idle PWM / OST safe-off (`verify=offcal`/`verify=untrip`) |
 | `s3_adc_offsets.js` | ADC zero-current / Udc / NTC→°C |
 | `s5_protection.js` | CMPSS3 OC / CMPSS5 OV / trip-zone (`force=tz`/`inject=oc`/`inject=ov`) |
+| `s5b_route.js` | CMPSS comparator/route test, no injection |
 | `s6_peripherals.js` | CAN / MT6701 encoder / RC-PWM / RGB (read-only) |
+| `check_is01_esc6288.js` | SAFETY-ONLY is01 check, OST invariant |
+| `cal_is02_esc6288.js` | is02 offset/gain cal (one-shot) |
+| `run_is04_esc6288.js` | is04 signal chain / open-loop I/f |
+| `run_is05_esc6288.js` | is05 FAST motor ID (continuous; halt desyncs Ls phase) |
+| `run_is06_esc6288.js` | is06 first-spin torque (hand-flick bootstraps FAST) — DONE 2026-06-30 |
+| `run_is07_esc6288.js` | is07 speed control |
+| `run_iftest_esc6288.js` | is04 open-loop I/f characterization rig |
+| `run_selfstart_esc6288.js` | product I/f self-start (no hand-flick) — DONE 2026-07-01 |
+| `run_slipguard_esc6288.js` | slip-guard / safe-off validator |
+| `enc_probe.js` / `can_probe.js` / `can_es.js` | ad-hoc read-only diagnostics |
 
-Stage 4 (first spin) is intentionally NOT scripted yet — it is the only step that un-trips the
-gates into switching; deferred to a separate first-spin script (manual stop conditions in the
-board README).
+See `esc6288_revA/README.md` for the complete runner inventory, pass conditions, and bench logs.

@@ -134,11 +134,15 @@ possibly an encoder). **Do NOT pursue PWM-down / IDRIVE / GaN as a low-speed-obs
 
 ## Peripheral bring-up on this rig (2026-06; cross-board — fixes fed back to esc6288)
 
-The esc6288 board isn't on the bench yet, so two of its product peripherals were validated here on
-the LaunchXL (same F280049C @ 100 MHz). Both surfaced a real driver bug that carries to esc6288;
-each fix was committed and host/link-verified, but the esc6288-specific signal path still needs a
-re-confirm (different SPI instance / level shifters). Driven by throwaway standalone DSS test images
-(bare `device.c` + driverlib + the pure `src/encoder` layer; not committed — bench-only).
+> **Update (2026-06-30):** esc6288 is now on the bench and both peripherals below have been
+> re-confirmed on its actual signal paths (SPIA + HT0104 encoder; GPIO12 → SN74LVC1T45 RGB).
+> The `[esc6288 BENCH]` items below are DONE; the re-confirm notes are historical context only.
+
+At the time of this LaunchXL bench session, the esc6288 board was not yet available, so two of its
+product peripherals were validated here on the LaunchXL (same F280049C @ 100 MHz). Both surfaced a
+real driver bug that carries to esc6288; each fix was committed and host/link-verified. Driven by
+throwaway standalone DSS test images (bare `device.c` + driverlib + the pure `src/encoder` layer;
+not committed — bench-only).
 
 1. **MT6701 absolute encoder over SPIB** — wired CLK=GPIO22, DO=GPIO31 (SOMI), CSN=GPIO34 (manual),
    logic on 3V3. Read live 14-bit angle with full-revolution tracking and CRC clean on every frame.
@@ -146,10 +150,10 @@ re-confirm (different SPI instance / level shifters). Driven by throwaway standa
    24-bit frame is at [30:7] of the two clocked words, not [31:8]. The original `(w0<<8)|(w1>>8)`
    gave **CRC 0/6**; the corrected `>>7` (`mt6701_ssi_frame()`) gives 6/6. Fixed in
    `src/encoder/mt6701.{c,h}` + `boards/esc6288_revA/.../mt6701_ssi.c` + host test (commit `925c281`).
-   **[esc6288 BENCH]** re-confirm on its SPIA + HT0104 path.
+   **[esc6288 BENCH — CONFIRMED 2026-06-30]** SPIA + HT0104, POL1PHA0 SSI, manual CSN — live 14-bit decode verified on esc6288.
 2. **WS2812 product RGB on GPIO0** (J8 PWM/GPIO), powered from JP6 3V3 — validated R/G/B/white/off all
    render distinctly. **Bug found:** `rgb_led.c` `WS_*_LOOPS` (18/14/7/20) were ~3x too long — even
    T0H pushed the '0' high pulse past the WS2812 0→1 threshold, so every bit read '1' (0xFFFFFF =
    stuck white, never off). Retuned to **6/6/1/12** (commit `cb11a6d`); T0H margin is tight (T0H=3
-   white, T0H=1 correct). **[esc6288 BENCH]** re-confirm on its GPIO12 → SN74LVC1T45 path.
+   white, T0H=1 correct). **[esc6288 BENCH — CONFIRMED 2026-06-30]** GPIO12 → SN74LVC1T45 → WS2812 RGB boot sweep verified on esc6288.
    *Note:* GPIO0 = EPWM1A (phase-A gate net); fine here only because no 24 V (DRV8305 unpowered).

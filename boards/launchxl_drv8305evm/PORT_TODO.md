@@ -32,7 +32,7 @@ directory only addresses the DRV8305EVM board layer.
 
 ## Scaling Constants (BOOSTXL-DRV8305EVM, CSA gain default 10 V/V + 7 mΩ shunt)
 - `USER_ADC_FULL_SCALE_CURRENT_A = 47.14`  ← TI official value, confirmed against legacy project
-- `USER_ADC_FULL_SCALE_VOLTAGE_V = 44.30`  ← ⚠️ pending confirmation against EVM voltage divider resistors (VSENSE ~43.2 k/4.99 k)
+- `USER_ADC_FULL_SCALE_VOLTAGE_V = 44.30`  ← low-voltage bench sanity done (VdcBus 24.1 V matches 24 V supply; see `BENCH_NOTES_am4116.md`). High-bus / exact resistor audit remains if this board is ever resumed.
 - Offsets: current 0.5 × 47.14 ≈ 23.57 A; Vbus offset see user.h
 
 ## Phase Tasks
@@ -82,7 +82,7 @@ directory only addresses the DRV8305EVM board layer.
         gate themselves. DSS on this setup cannot call target functions, so `tools/flash/drv8305evm/prepare_drv8305_gate.js`
         and lab run scripts assert EN_GATE directly (GPIO39) after the lab reaches the `flagEnableSys`
         wait, then release `flagEnableSys`. Product firmware still calls `HAL_enableDRV()` directly.
-  - ⚠️ **Pending hardware confirmation**: SPI communication (read status/ID), 6-PWM mode (Control 7), VDS overcurrent threshold/gate drive current/dead-band to be tuned per motor from measurement; SPI polarity set per MotorWare (POL0PHA0), verify with oscilloscope on board.
+  - SPI communication and 6-PWM mode **bench-confirmed** (see `BENCH_NOTES_am4116.md`): `CTRL_7=0x216` → 6-PWM; `CTRL_A=0x000` → CSA gain 10 V/V; STATUS 1-4 = 0 (no faults); SPI polarity POL0PHA0 confirmed. Remaining per-motor: VDS overcurrent threshold, gate-drive current, dead-band tuning.
 - [~] **Phase 4 Power-on Bring-up**: partially exercised historically (see `product/BENCH.md` and
   `BENCH_NOTES_am4116.md`), then paused. Do not resume as the default path; esc6288 bring-up owns
   current product validation.
