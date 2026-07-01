@@ -71,8 +71,25 @@ header comment in `drivers/include/board.h`.
   IA/IB/IC≈2050, Udc≈479. is02 offset cal (`cal_is02_esc6288.js`) PASS — current offsets matched to ~0.8 A across
   phases, Vbias≈0.49 V. **is03 SKIPPED** (V/f → ~100 A on the 40 mΩ 4116; see the BENCH note). is04 signal-chain
   (`run_is04_esc6288.js`) — current loop + Clarke/Park confirmed (Iq tracks, Id≈0, no fault); open-loop forced spin
-  did not break standstill (see self-start note). is05 not run (4116 params are back-filled, not re-ID'd). is06 PASS
-  (first spin, flick). is07 (`run_is07_esc6288.js`) speed-loop self-start does NOT cold-start — see below.
+  did not break standstill (see self-start note). **is05 FAST ID COMPLETED** (`run_is05_esc6288.js`, see below).
+  is06 PASS (first spin, flick). is07 (`run_is07_esc6288.js`) speed-loop self-start does NOT cold-start — see below.
+
+### is05 FAST motor ID — COMPLETE (2026-07-01)
+Full FAST identification of the 4116 ran to `flagMotorIdentified=1` on esc6288 (5 completed runs, faultUse=0).
+The lab's own ID sequence (RoverL→Rs→RampUp→Flux→Ls) needs **continuous execution** — halt-sampling over DSS
+desyncs the fragile Ls phase. `run_is05_esc6288.js` runs the ID uninterrupted (~160 s, EST flux+Ls wait tables
+need ~100 s) and halts once at the end. Repeatable results (median of 4): **Rs≈0.0164 Ω, Ls≈23.5 µH,
+flux≈0.0128 V/Hz**.
+- **flux 0.0128 ≈ profile 0.012** → KV450 confirmed on real hardware.
+- **Rs mystery resolved (Codex, verdict B):** the legacy profile `0.0403` was the **LINE-LINE** value (the MotorWare
+  pu→Ω recipe `Rs_pu/2^30 × Vfs/Ifs × 2^(30−qFmt)` = 0.0401 = bench line-line 42–43 mΩ), NOT the phase-to-neutral
+  the FOC model wants. Both MotorWare and SDK6 FAST use phase-to-neutral; SDK6's direct getter is correct.
+  `motors/am_4116_kva.h` Rs corrected `0.0403 → 0.0213` (bench line-line/2).
+- **Ls corrected `33.6 → 23.5 µH`** (esc6288 ID median; old 33.6 was the same suspect recipe).
+- **Open — Kelvin current-scale check:** ID Rs (0.0164) and Ls (23.5) both sit ~25–30 % below the old values while
+  flux matches; this is consistent with either a mild ~1.3× current over-read (→ true Ls ~30 µH) or the old recipe
+  being high. A Kelvin measurement (force known DC current, read `adcData.I_A`) settles the current-sense gain and
+  the final Rs/Ls. Committed values take the conservative (lower-Kp) direction until then.
 
 ### Sensorless cold-start (self-start from standstill) — [FOLLOW-UP, not solved]
 The 4116 (≈0.012 V/Hz surface-PM outrunner) does **not** reliably self-start under pure sensorless FAST: is06
