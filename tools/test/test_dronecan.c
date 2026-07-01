@@ -223,7 +223,7 @@ int main(void)
                 float expect = (d->raw14 <= 0) ? 0.0f
                              : ((float)d->raw14 / (float)DRONECAN_RAWCMD_FULLSCALE);
                 CHECK_NEAR(r.command.throttle, expect, 1e-4f);
-                CHECK(r.command.arm);
+                CHECK(r.command.arm == (expect > 0.0f));  /* arm now reflects a POSITIVE throttle (run intent) */
             }
         }
     }
@@ -258,7 +258,7 @@ int main(void)
         for (i = 0; i < 5; ++i) { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r); }
         { dronecan_frame_t nz2 = make_raw1(4000, 42u); dronecan_on_rx(&dn, &nz2, &r); CHECK(!r.command.arm); }
         for (i = 0; i < 9; ++i) { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r); CHECK(!r.command.arm); }
-        { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r); CHECK(r.command.arm); } /* 10th zero */
+        { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r); CHECK(dn.armed); } /* 10th zero completes handshake (command.arm=throttle>0, here 0) */
 
         /* Now a real command rides through. */
         { dronecan_frame_t go = make_raw1(8191, 42u); dronecan_on_rx(&dn, &go, &r);
@@ -292,7 +292,7 @@ int main(void)
         for (i = 0; i < 9; ++i) { dronecan_frame_t z = make_raw1(0, 42u);
           dronecan_on_rx(&dn, &z, &r); CHECK(r.command_updated); CHECK(!r.command.arm); }
         { dronecan_frame_t z = make_raw1(0, 42u); dronecan_on_rx(&dn, &z, &r);
-          CHECK(r.command.arm); }  /* 10th post-allocation zero arms */
+          CHECK(dn.armed); }  /* 10th post-allocation zero completes the handshake */
     }
 
     /* ---- RX: seq increments on every accepted frame, even constant throttle ---- */

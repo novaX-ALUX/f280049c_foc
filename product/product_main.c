@@ -307,6 +307,14 @@ static void product_build_esc_cfg(esc_control_cfg_t *c)
     c->vbus_ov_set = 54.0f; c->vbus_ov_clr = 50.0f;  // 12S max charge 50.4 V; HW OV ~56 V
     c->vbus_uv_set = 18.0f; c->vbus_uv_clr = 22.0f;  // low for bench; raise for flight
     c->temp_ot_set = 100.0f; c->temp_ot_clr = 85.0f; // live: NTC->degC via ntc.c (trim curve on bench)
+#ifdef ESC6288_BENCH_LOWVOLT
+    // Bench-only (12 V PSU, NTC not yet populated): the flight undervolt trip (18 V) false-fires at 12 V,
+    // and the open/unpopulated NTC reads ~150 C (open_temp_C) -> false over-temp. Both put esc_control in
+    // FAULT and block CAN commanding. Relax them for bench bring-up. Built with --define=ESC6288_BENCH_LOWVOLT;
+    // NEVER in a flight image (revert once a real battery >18 V and a populated NTC are on the board).
+    c->vbus_uv_set = 8.0f;  c->vbus_uv_clr = 6.0f;
+    c->temp_ot_set = 200.0f; c->temp_ot_clr = 190.0f;
+#endif
 #else
     c->oc_set_A   = 8.0f;  c->oc_clr_A   = 6.0f;
     c->vbus_ov_set = 30.0f; c->vbus_ov_clr = 28.0f;
@@ -590,6 +598,9 @@ static void product_tick_1ms(void)
     raw.enc_stale     = false;
 #endif
     foc_bridge_map_feedback(&raw, &fb);
+    // Feedback is only trustworthy once the ADC offset calibration is done; before that the current/
+    // Vbus readings are garbage and would false-latch OC/UV in esc_control. Gate the hard-fault eval.
+    fb.valid = (motorVars.flagEnableOffsetCalc == false);
 
     // 3) run the control state machine (NULL only when no source is healthy; a held command re-emits the same seq so esc_control's watchdog ages from the last real frame)
     (void)esc_control_step(&g_esc, g_have_cmd ? &g_cmd : NULL, &fb, 0.001f, &out, &tel);

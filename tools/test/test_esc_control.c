@@ -59,6 +59,7 @@ static esc_feedback_t nominal_fb(void)
     fb.enc_mech_rev   = 0.0f;
     fb.temp_C         = 25.0f;
     fb.gate_fault     = false;
+    fb.valid          = true;   /* settled feedback (offset cal done); hard-fault eval runs */
     return fb;
 }
 
@@ -213,6 +214,27 @@ int main(void)
         CHECK(t.hard_fault_bits == 0u);
     }
 
+    /* Invalid feedback (offset cal not done / unsettled) must NOT latch any hard fault -- the boot
+     * transient reads garbage current + unsettled Vbus that would otherwise false-latch OC/UV. */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        fb.valid     = false;      /* cal not done */
+        fb.vbus_V    = 0.0f;       /* would be UNDERVOLT if evaluated */
+        fb.i_motor_A = 500.0f;     /* would be OVERCURRENT if evaluated */
+        drive(&st, 0.0f, true, &fb, 0.001f, &o, &t);
+        CHECK(t.hard_fault_bits == 0u);            /* nothing latched while invalid */
+        CHECK(t.state != ESC_STATE_FAULT);
+        /* once valid with the SAME garbage -> now it latches */
+        fb.valid = true;
+        drive(&st, 0.0f, true, &fb, 0.001f, &o, &t);
+        CHECK((t.hard_fault_bits & (ESC_HF_UNDERVOLT | ESC_HF_OVERCURRENT)) != 0u);
+        CHECK(t.state == ESC_STATE_FAULT);
+    }
+
     /* Encoder stale is NOT a hard fault in RUN_TORQUE (sensorless FAST). */
     {
         g_ref_valid = true; g_seq = 0;
@@ -311,8 +333,8 @@ int main(void)
         esc_control_init(&st, &c, ref_load, NULL);
         esc_feedback_t fb = nominal_fb();
         drive(&st, 0.0f, true,  &fb, 0.001f, &o, &t); /* -> ARMED */
-        drive(&st, 0.0f, true,  &fb, 0.001f, &o, &t); /* ARMED, enabled */
-        CHECK(o.enable);
+        drive(&st, 0.0f, true,  &fb, 0.001f, &o, &t); /* ARMED at zero throttle = standby (no enable) */
+        CHECK(!o.enable);   /* ARMED no longer energizes at zero throttle; only RUN_TORQUE enables */
         drive(&st, 0.0f, false, &fb, 0.001f, &o, &t); /* disarm */
         CHECK(t.state == ESC_STATE_DISARMED);
         CHECK(!o.enable);

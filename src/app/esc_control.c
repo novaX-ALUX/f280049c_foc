@@ -118,25 +118,29 @@ esc_result_t esc_control_step(esc_control_state_t *st,
     float throttle = st->have_command ? st->last_throttle : 0.0f;
     bool  arm      = st->have_command ? st->last_arm : false;
 
-    /* --- hard-fault evaluation (latching set; hysteresis clear handled in FAULT). --- */
-    if (fb->vbus_V >= c->vbus_ov_set) {
-        st->hard_fault_bits |= ESC_HF_OVERVOLT;
-    }
-    if (fb->vbus_V <= c->vbus_uv_set) {
-        st->hard_fault_bits |= ESC_HF_UNDERVOLT;
-    }
-    if (fb->temp_C >= c->temp_ot_set) {
-        st->hard_fault_bits |= ESC_HF_OVERTEMP;
-    }
-    if (fabsf(fb->i_motor_A) >= c->oc_set_A) {
-        st->hard_fault_bits |= ESC_HF_OVERCURRENT;
-    }
-    if (fb->gate_fault) {
-        st->hard_fault_bits |= ESC_HF_GATE_FAULT;
-    }
-    /* Encoder stale only matters as a hard fault while we depend on it (closed-loop park). */
-    if ((st->state == ESC_STATE_PARKING || st->state == ESC_STATE_PARKED) && fb->enc_stale) {
-        st->hard_fault_bits |= ESC_HF_ENCODER_STALE;
+    /* --- hard-fault evaluation (latching set; hysteresis clear handled in FAULT). Only run once the
+     * feedback is valid (offset cal done): the boot/cal transient reads garbage current + unsettled
+     * Vbus, which would false-latch OC/UV before the ESC ever sees a command. --- */
+    if (fb->valid) {
+        if (fb->vbus_V >= c->vbus_ov_set) {
+            st->hard_fault_bits |= ESC_HF_OVERVOLT;
+        }
+        if (fb->vbus_V <= c->vbus_uv_set) {
+            st->hard_fault_bits |= ESC_HF_UNDERVOLT;
+        }
+        if (fb->temp_C >= c->temp_ot_set) {
+            st->hard_fault_bits |= ESC_HF_OVERTEMP;
+        }
+        if (fabsf(fb->i_motor_A) >= c->oc_set_A) {
+            st->hard_fault_bits |= ESC_HF_OVERCURRENT;
+        }
+        if (fb->gate_fault) {
+            st->hard_fault_bits |= ESC_HF_GATE_FAULT;
+        }
+        /* Encoder stale only matters as a hard fault while we depend on it (closed-loop park). */
+        if ((st->state == ESC_STATE_PARKING || st->state == ESC_STATE_PARKED) && fb->enc_stale) {
+            st->hard_fault_bits |= ESC_HF_ENCODER_STALE;
+        }
     }
 
     /* Park-reference learning (only progresses while disarmed + still). */
@@ -178,7 +182,9 @@ esc_result_t esc_control_step(esc_control_state_t *st,
             st->iq_ref_A = 0.0f;
             break;
         }
-        enable = true;
+        /* ARMED = logical standby / coast: NO gate enable at zero/idle throttle. Only RUN_TORQUE
+         * enables output. This keeps arming quiet (the open-loop I/f self-start triggers on the RUN
+         * transition, not on arm) -- critical before a prop is mounted. */
         st->iq_ref_A = 0.0f;
         if (throttle > c->throttle_run_thresh) {
             st->state = ESC_STATE_RUN_TORQUE;

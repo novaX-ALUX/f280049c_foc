@@ -136,7 +136,11 @@ static void handle_raw_command(dronecan_t *dn, const dronecan_frame_t *f, dronec
             thr = 1.0f;
         }
         res->command.throttle = thr;
-        res->command.arm = true;
+        /* RUN INTENT vs handshake: `dn->armed` is the one-time zero-frame handshake (kept true), but the
+         * command's `arm` reflects a POSITIVE throttle. A zero/idle command after the handshake emits
+         * arm=false so esc_control coasts and can clear a transient fault (its fault_clearable needs
+         * !arm) -- there is no other CAN-level disarm. */
+        res->command.arm = (thr > 0.0f);
     } else {
         res->command.throttle = 0.0f;
         res->command.arm = false;

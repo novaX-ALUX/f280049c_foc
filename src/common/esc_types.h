@@ -92,6 +92,8 @@ typedef struct {
     bool  enc_stale;
     float temp_C;
     bool  gate_fault;
+    bool  valid;            /* feedback is settled (offset cal done): gate hard-fault latching so the
+                            * boot/cal transient (garbage current, unsettled Vbus) can't false-latch OC/UV */
 } esc_feedback_t;
 
 /* App -> FOC bridge. Bridge selects the loop by .mode. */
