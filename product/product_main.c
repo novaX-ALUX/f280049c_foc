@@ -476,7 +476,12 @@ static void apply_setpoint(const foc_setpoint_t *sp_in)
         IdqSet_A.value[0] = 0.0f;
         IdqSet_A.value[1] = 0.0f;              // speed PI (ISR, deferred) will own Iq
         motorVars.speedRef_Hz = sp.speed_ref_hz;
-        if(motorVars.flagEnableOffsetCalc == false)
+        // Arm once offset cal is done AND no fault is latched. The fault gate makes a startup
+        // slip/OC latch STICKY: without it, the main loop clears flagRun on faultUse but this
+        // re-arms every 1 ms while the throttle is held -> the startup SM retries and repeatedly
+        // pulses the motor. Latched until power cycle / image reload (coast does not clear
+        // faultNow); auto-recovery on a genuine throttle-drop is a follow-up.
+        if((motorVars.flagEnableOffsetCalc == false) && (motorVars.faultUse.all == 0))
         {
             motorVars.flagRunIdentAndOnLine = 1;
         }
@@ -486,9 +491,11 @@ static void apply_setpoint(const foc_setpoint_t *sp_in)
     // Torque: the ISR copies IdqSet_A -> Idq_ref_A directly (no speed loop).
     IdqSet_A.value[0] = 0.0f;
     IdqSet_A.value[1] = sp.iq_ref_A;
-    if(motorVars.flagEnableOffsetCalc == false)
+    // Arm once offset cal is done AND no fault is latched (fault gate makes a startup slip/OC
+    // latch sticky instead of auto-re-arming while the throttle is held -- see the speed branch).
+    if((motorVars.flagEnableOffsetCalc == false) && (motorVars.faultUse.all == 0))
     {
-        motorVars.flagRunIdentAndOnLine = 1;   // arm only once ADC offset cal is done
+        motorVars.flagRunIdentAndOnLine = 1;
     }
 }
 
