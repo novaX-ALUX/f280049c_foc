@@ -102,10 +102,10 @@ bring-up path.
 Two hardware facts confirmed against the code (drive the order):
 - **Stock SDK labs do NOT enable GPIO39 on this board.** `HAL_enableDRV()` is only called under
   `#ifdef DRV8320_SPI` (e.g. `is01_intro_hal.c:423`, `is06_torque_control.c:416`); this board defines
-  no SPI macro (`build.sh:127`). So "it compiles" ≠ "PWM reaches the LMG5200". The gate buffer must be
+  no SPI macro (see `build.sh`'s board `DEFINES`). So "it compiles" ≠ "PWM reaches the LMG5200". The gate buffer must be
   enabled explicitly — the `*_3phganinv.js` helpers below drive **GPIO39 LOW (active-low nEn_uC)**.
 - **AM-4116 unsafe on is03 V/f and is05 ID here.** is03 scalar V/f puts `VOLT_MIN_V` across the line-line resistance ~42–43 mΩ (phase-neutral 0.0213 Ω) ≈
-  instant over-current (`am_4116_kv450.h:46`); is05 FAST-ID startup transient exceeds this board's
+  instant over-current (see the is03 V/f note in `motors/am_4116_kv450.h`); is05 FAST-ID startup transient exceeds this board's
   ±16.5 A sense ceiling (tighter than the DRV8305 EVM). See `product/BENCH.md`, `motors/README.md`.
 
 GaN gate polarity (opposite of DRV8305): enable = `GPBCLEAR 0x7F0C` bit7 (GPIO39 LOW, readback 0);

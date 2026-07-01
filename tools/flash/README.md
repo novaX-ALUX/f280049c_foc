@@ -72,7 +72,8 @@ speed — see `boards/launchxl_3phganinv/PORT_TODO.md`. Historical safe-order sc
 
 ## esc6288_revA/ — ESC6288 rev A (JSM6288T, no EN / no nFAULT)
 
-Primary target. First prototype bench-run (2026-06-30/07-01) — all stages PASS. See
+Primary target. First prototype bench-run (2026-06-30/07-01) — stages passed as documented (protection
+comparator/route + OC path proven; **OV injection still pending** — see PORT_TODO). See
 `esc6288_revA/README.md` for the full runbook, pass/stop conditions, and the two hard safety rules
 (default observe-only; any un-trip/PWM behind an explicit arg with unconditional safe-off on exit).
 Safe-off here is the EPWM trip-zone (OST), since the JSM6288T has no gate-enable pin.
