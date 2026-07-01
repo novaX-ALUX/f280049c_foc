@@ -116,17 +116,28 @@ vector and the loop diverges into a >60 A spike (software ISR OC). Validated end
 at 35 Hz, faultUse=0, spun 4292 rpm closed-loop under FAST, no flick. (Note: product FOC had never been armed on
 esc6288 before this — the arm/align path itself is now proven too.)
 
-**Hardening follow-ups (Codex review 2026-07-01) before 15" prop / production, ranked:**
-1. **`SU_FAULT` must be real safe-off** — currently zeroes Idq but leaves `flagRunIdentAndOnLine=1` (PWM/EST stay
-   enabled = active zero-current, not OST safe-off). Latch a product fault + clear the run flag / `HAL_disablePWM`.
-2. **Ramp slip/stall guard** — no speed-tracking guard in `SU_RAMP`; a prop can slip far behind → high load-angle
-   current → OC before the timeout. Add: past ~10 Hz, require FAST/MT6701 speed ≥50% of open-loop within 100–200 ms;
-   abort on sustained angle error >1 rad or phase current over a prop-safe limit.
-3. **Conservative first-prop params:** `id_align=3, id_ramp=3, accel=2 Hz/s, handoff=35–45 Hz, err=0.20, timeout=20 s`.
-4. **Handoff dwell + blend** — require angle-error below threshold for ~50 ms + speed-sign coherence, and blend Id→0 /
-   Iq→throttle over 50–200 ms (the current one-tick Id→0, Iq→throttle step is a large vector bump under load).
-5. **Atomic setpoint** — snapshot `IdqSet_A` + arm flag under interrupt lock (1 ms tick vs ISR read is unguarded).
-6. Confirm C89/C99 dialect for `bool`; reuse one `cosf/sinf` phasor per ISR; profile trig cost at 20 kHz.
+**Hardening (Codex review 2026-07-01) — DONE + bench-validated:**
+- ✅ `SU_FAULT` real safe-off — forces OST (`HAL_disablePWM`) + latches `moduleOverCurrent` so the main loop
+  disarms (validated `run_slipguard_esc6288.js`: forced slip → OST + faultUse=16 + flagRun=0, no drive).
+- ✅ Ramp slip/stall guard — past `slip_check_Hz`, require FAST speed ≥ `slip_frac`×open-loop freq and bounded angle
+  error, else `SU_FAULT` (don't wait for timeout).
+- ✅ Handoff dwell + blend — coherence (freq, angle, +speed sign) held `dwell_s` then `SU_BLEND` ramps Id→0 /
+  Iq→throttle over `blend_s` (validated: handoff current went from a one-tick bump to clean Id≈0/Iq≈throttle).
+- ✅ FAST fed the open-loop freq (not 0 Hz) during ALIGN/RAMP so its observer converges.
+- ✅ Re-arm fault latch — `apply_setpoint` arms only when `faultUse.all==0` (a startup slip/OC latch stays sticky
+  instead of re-pulsing the motor; validated: latched, no retry). Latch clears on power-cycle/reload.
+- ✅ C99 dialect — `build.sh` now passes `--c99` (product + `LAB=all` compile clean); `bool` no longer relies on an
+  unproven CGT extension.
+- Atomic setpoint (Codex #1) — left; benign (apply_setpoint writes IdqSet before the run flag, startup ignores IdqSet).
+
+**PROP-TEST GATES — must resolve/prove before the first 15" prop bring-up (Codex 2026-07-01):**
+1. **PI integrator carryover at `SU_RAMP→SU_BLEND`** (top must-fix) — the Id/Iq current-PI integrators are not
+   reset/preloaded across the open-loop→FAST frame switch; coherence keeps it small (validated CLEAN no-load) but it
+   can spike on the first handoff under load. Resolve (flush/preload at BLEND entry) OR bench-prove under prop.
+2. **Profile the ISR cycle margin** with the two `cosf/sinf` pairs (ALIGN/RAMP) at 20 kHz in CCS before prop.
+3. **Set conservative prop params via DSS before arming** — defaults are no-load (`accel=25 Hz/s`, `err=0.35`); use
+   `accel≈2 Hz/s`, `handoff≈35–45 Hz`, `err≈0.20`, `timeout≈20 s`, and a low `oc_set_A` (10–15 A).
+4. Deferred: auto-recovery on throttle-drop (needs a separate startup-fault bit; must not clear a real ISR/HW OC).
 
 1. **Rails + clock**: power 3V3/5V/12V only (no motor). Confirm **SYSCLK = 100 MHz** (toggle a
    GPIO at a known divide, scope it) — proves `IMULT(20)`. If it reads 50 MHz the resonator

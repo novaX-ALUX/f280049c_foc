@@ -110,7 +110,7 @@ CL="$CGT/bin/cl2000"
 [ -d "$MCSDK" ] || { echo "MCSDK not found: $MCSDK (set MCSDK_ROOT or place it inside the project)"; exit 1; }
 [ -x "$CL" ] || { echo "cl2000 not found: $CL"; echo "  Install the TI C2000 compiler (CCS or standalone CGT), or set CGT=/path/to/ti-cgt-c2000_<ver>"; exit 1; }
 
-CFLAGS="-v28 -ml -mt --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
+CFLAGS="-v28 -ml -mt --c99 --float_support=fpu32 --tmu_support=tmu0 -O2 --fp_mode=relaxed --gen_func_subsections=on --abi=eabi --display_error_number --diag_warning=225 --diag_suppress=10063"
 # Board selection: build.sh injects BUILD_BOARD_ID per BOARD; each board.h uses it to self-check against board/build mismatch.
 DEFINES="--define=_INLINE --define=_RAM --define=_F28004x --define=DATALOG_ENABLE --define=CPUTIME_ENABLE --define=BUILD_BOARD_ID=$BOARD_ID --define=BUILD_MOTOR_ID=$MOTOR_ID --define=BUILD_ESC_INDEX=$ESC_INDEX --define=BUILD_NODE_ID=$NODE_ID --define=BUILD_PWM_PHASE_ORDER=$PWM_PHASE_ORDER --define=BUILD_SW_VCS_COMMIT=$VCS_COMMIT"
 INC=( -I"$MCSDK" -I"$MCSDK/libraries/control/ctrl/include" -I"$MCSDK/libraries/control/pi/include"
