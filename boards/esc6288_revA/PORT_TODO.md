@@ -304,3 +304,40 @@ BOARD=esc6288_revA MOTOR=am_4116_kv450 PRODUCT=1       bash build.sh   # full pr
 BOARD=esc6288_revA LAB=all bash build.sh                              # 12-lab regression
 bash tools/test/run.sh                                               # host tests (incl. src/ purity)
 ```
+
+## Bench methodology caveats (closeout, 2026-07-02)
+
+The 2026-07-01/02 "CAN RX payload zeroing" investigation ended with **all esc6288 hardware and
+firmware exonerated** — the zeros were genuinely transmitted by the ArduPilot FC (soft-arm gating),
+and every "corruption" observation was a test-tooling artifact. Lessons, so nobody re-lives this:
+
+- **Debugger poisoning.** Do NOT halt-poll (DSS `halt`/`run` loops) during CAN-drive tests: on halt
+  the DCAN enters debug mode (message RAM remapped, IFx unusable — TRM 26.14.3) and observations are
+  invalid. Judge behavior by telemetry + cumulative in-firmware counters read at a SINGLE final halt.
+- **`xds110reset` resets the TARGET**, not just the probe — it kills the RAM-loaded image silently.
+- **DSS attach reads are unreliable**: `connect` + `symbol.load` on a live target returns garbage
+  zeros; only full `loadProgram` sessions read symbols correctly (and reload/restart the firmware).
+- **JTAG `-2131`** on these boards tracks the probe + jumper-harness combo (and the TMS pull-up fly
+  wire), not the firmware. Freeze a known-good probe/harness set; power-cycle the board first.
+- **ArduPilot FC-side gating** (ArduCopter 4.6.3): RawCommand carries real values only while
+  `soft_armed && _ESC_armed_mask` (AP_DroneCAN `SRV_send_esc`); on the bench, motor-test's internal
+  arm is killed by auto-disarm (`DISARM_DELAY`, default 10 s) and the armed path spools to ground
+  idle via the land detector — both produce "works ~8.5 s then zeros forever". Soft-arm asserts on
+  the bus (`safety.ArmingStatus`) ~6 s AFTER the motor-test command. Keep GCS heartbeats + RC
+  overrides streaming, set `DISARM_DELAY=0` for bench (RESTORE 10 before flight).
+- **Validate parsers against known frames.** A candump awk that read the wrong fields "proved" the
+  wire carried nonzero payloads and misdirected the whole investigation for hours.
+- **`i_motor_A` is the instantaneous peak |phase current|** (max of three phases), not input current
+  or RMS — no-load readings of several amps at 20% are expected telemetry semantics, not a fault.
+- **SDK default-clock trap.** `Device_init()` assumes a 20 MHz crystal; esc6288 has a 10 MHz
+  resonator, so SDK-default test images run at SYSCLK=50 MHz (CAN bitrate halves → stuff errors /
+  error-passive). Any bare-metal bench image must re-lock the PLL with IMULT(20) exactly like
+  `hal.c` does. The product firmware always did this correctly.
+- **Removed rescue paths (2026-07-02):** temporary `ESC6288_USE_CANB` (CANB fly-wire reroute for a
+  unit with reworked CANA pins) and `ESC6288_NO_NTC` (25 C stub for NTC-unpopulated boards) compile
+  switches were deleted once fully-populated CANA+NTC boards validated. If a future board needs the
+  CANB reroute, remember: hal.c muxes GPIO35/37 to CANA at boot, so the reroute must also release
+  those pins to high-Z or they fight the transceiver TXD net.
+- **New-board bring-up order:** check analog before blaming firmware — a raw ADC-result dump
+  (all-zero across ADCA/B/C = dead VDDA rail) and the NTC open signature (exactly 150.1 C) localized
+  both assembly faults on the 2026-07-02 batch in minutes.
