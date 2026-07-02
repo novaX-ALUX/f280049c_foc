@@ -80,6 +80,7 @@ esc_result_t esc_control_step(esc_control_state_t *st,
             tel->vbus_V          = 0.0f;
             tel->current_A       = 0.0f;
             tel->temp_C          = 0.0f;
+            tel->dbg_u32         = 0u;
         }
         return ESC_ERR_BAD_ARG;
     }
@@ -313,6 +314,7 @@ esc_result_t esc_control_step(esc_control_state_t *st,
     tel->vbus_V          = fb->vbus_V;
     tel->current_A       = fb->i_motor_A;
     tel->temp_C          = fb->temp_C;
+    tel->dbg_u32         = 0u;   /* callers may overwrite with bench debug data */
 
     return ESC_OK;
 }

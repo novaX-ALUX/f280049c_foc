@@ -32,7 +32,19 @@
 
 #include <math.h>
 
+#ifdef ESC6288_VSF
+#ifndef _VSF_EN_
+#error "ESC6288_VSF requires EXTRA_DEFINES=\"--define=_VSF_EN_\" so user.h derives VSF estimator/controller timing"
+#endif
+#ifndef ESC6288_OVERMOD
+#error "ESC6288_VSF requires ESC6288_OVERMOD because the IS12 path depends on SVGENCURRENT reconstruction"
+#endif
+#endif
+
 #pragma CODE_SECTION(mainISR, ".TI.ramfunc");
+#ifdef ESC6288_VSF
+#pragma CODE_SECTION(estISR, ".TI.ramfunc");
+#endif
 
 //
 // the globals (mirrors the SDK torque lab; FAST/HAL handles + FOC objects)
@@ -104,6 +116,46 @@ PI_Obj        pi_spd;
 
 SVGEN_Handle  svgenHandle;
 SVGEN_Obj     svgen;
+
+#ifdef ESC6288_FWC_MTPA
+FWC_Handle    fwcHandle;
+FWC_Obj       fwc;
+
+MTPA_Handle   mtpaHandle;
+MTPA_Obj      mtpa;
+
+static uint16_t counterFWCandMTPA = 0u;
+#define PRODUCT_FWC_MTPA_TICKS    (10u)
+#ifndef ESC6288_FWC_MTPA_DEFAULT
+#define ESC6288_FWC_MTPA_DEFAULT  (false)
+#endif
+static volatile bool g_fwc_mtpa_enable = ESC6288_FWC_MTPA_DEFAULT;
+#endif
+
+#ifdef ESC6288_OVERMOD
+// is08 overmodulation port (opt-in): SVGENCURRENT reconstructs phase currents whose low-side
+// shunt window collapses at high duty, compensates PWM min-width, and steers the ADC trigger
+// into the measurable window. Build with --define=ESC6288_OVERMOD (optionally raise
+// USER_MAX_VS_MAG_PU to 0.66 for the extended modulation range).
+SVGENCURRENT_Obj    svgencurrent;
+SVGENCURRENT_Handle svgencurrentHandle;
+MATH_Vec3 adcDataPrev = {0.0f, 0.0f, 0.0f};      //!< previous-cycle currents for reconstruction
+MATH_Vec3 pwmDataPrev = {0.0f, 0.0f, 0.0f};      //!< previous-cycle PWM for min-width comp
+SVGENCURRENT_IgnoreShunt_e ignoreShuntNextCycle = SVGENCURRENT_USE_ALL;
+SVGENCURRENT_VmidShunt_e   midVolShunt = SVGENCURRENT_VMID_A;
+#endif
+
+#ifdef ESC6288_VSF
+VSF_Obj       vsf;
+VSF_Handle    vsfHandle;
+
+#define PRODUCT_PWM_FREQ_DEFAULT_HZ ((uint16_t)(USER_PWM_FREQ_kHz * 1000.0f))
+#ifndef ESC6288_VSF_DEFAULT
+#define ESC6288_VSF_DEFAULT  (false)
+#endif
+static volatile bool     g_vsf_enable = ESC6288_VSF_DEFAULT;
+static volatile uint16_t g_vsf_pwm_freq_Hz = PRODUCT_PWM_FREQ_DEFAULT_HZ;
+#endif
 
 TRAJ_Handle   trajHandle_spd;
 TRAJ_Obj      traj_spd;
@@ -630,6 +682,12 @@ static void product_tick_1ms(void)
 #if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
     if (g_arb_active == ESC_SRC_PWM) { tel.status_bits |= (uint32_t)ESC_ST_SRC_PWM; } // forward hook: ESC_ST_SRC_PWM not yet serialized in esc.Status; observe via g_arb_active/g_arb_status_bits in the debugger
 #endif
+#ifdef ESC6288_RS_TELEM_DEBUG
+    // BENCH ONLY (is10 validation): stream Rs tracking over the esc.Status debug channel,
+    // debugger-free. low16 = model Rs in 10*milliohm, high16 = live RsOnLine estimate.
+    tel.dbg_u32 = ((uint32_t)(motorVars.RsOnLine_Ohm * 1.0e5f) << 16)
+                |  (uint32_t)(motorVars.Rs_Ohm       * 1.0e5f);
+#endif
 
     // 4) map the control output to a FAST setpoint and apply it
     foc_bridge_map_output(&g_fbcfg, &out, &sp);
@@ -673,6 +731,96 @@ static void product_tick_1ms(void)
     }
 }
 
+//! \brief Rs online recalibration service (is10 port, main-loop cadence). While the motor RUNS
+//! (product run flag set, I/f startup handed off, FAST online) and the feature is enabled, FAST
+//! injects an Id ripple of RsOnLineCurrent_A to estimate the hot stator resistance; the estimate
+//! is committed to the model (EST_setFlag_updateRs) once within 5% of the current model Rs.
+//!
+//! Edge-tracked (deviation from is10): the lab re-writes the "disabled" EST state every main-loop
+//! pass; in the product's tight 1 ms loop that continuous hammering runs all through the I/f
+//! startup and corrupts FAST's own startup Rs recalc (bench 2026-07-02: model Rs walked
+//! 21.3 -> 44.3 -> 59.5 mOhm across start attempts and the startup slipped). The disable/reset
+//! actions therefore fire ONCE on the active->inactive edge and the EST is left alone otherwise.
+static void product_run_rs_online(EST_Handle handle)
+{
+    static bool s_was_active = false;
+
+    bool active = (motorVars.flagRunIdentAndOnLine != 0) &&
+                  (g_su.state == SU_RUN) &&
+                  (EST_getState(handle) == EST_STATE_ONLINE) &&
+                  (motorVars.flagEnableRsOnLine == true);
+
+    if(active)
+    {
+        EST_setFlag_enableRsOnLine(handle, true);
+        EST_setRsOnLineId_mag_A(handle, motorVars.RsOnLineCurrent_A);
+
+        float32_t RsError_Ohm = motorVars.RsOnLine_Ohm - motorVars.Rs_Ohm;
+
+        if(fabsf(RsError_Ohm) < (motorVars.Rs_Ohm * 0.05f))    // within 5% -> commit
+        {
+            EST_setFlag_updateRs(handle, true);
+        }
+    }
+    else if(s_was_active)
+    {
+        // one-shot disable/reset on the falling edge only
+        EST_setRsOnLineId_mag_A(handle, 0.0f);
+        EST_setRsOnLineId_A(handle, 0.0f);
+        EST_setRsOnLine_Ohm(handle, EST_getRs_Ohm(handle));
+        EST_setFlag_enableRsOnLine(handle, false);
+        EST_setFlag_updateRs(handle, false);
+    }
+
+    s_was_active = active;
+}
+
+#ifdef ESC6288_FWC_MTPA
+static inline void product_apply_fwc_mtpa_current_angle(void)
+{
+    if(g_fwc_mtpa_enable && (g_su.state == SU_RUN))
+    {
+        counterFWCandMTPA++;
+        if(counterFWCandMTPA >= PRODUCT_FWC_MTPA_TICKS)
+        {
+            MATH_Vec2 currentPhasor;
+
+            counterFWCandMTPA = 0u;
+            motorVars.IsRef_A = Idq_ref_A.value[1];
+            motorVars.Vs_V = sqrtf((Vdq_out_V.value[0] * Vdq_out_V.value[0]) +
+                                   (Vdq_out_V.value[1] * Vdq_out_V.value[1]));
+            motorVars.VsRef_V = motorVars.VsRef_pu * adcData.dcBus_V;
+
+            FWC_computeCurrentAngle(fwcHandle, motorVars.Vs_V, motorVars.VsRef_V);
+            MTPA_computeCurrentAngle(mtpaHandle, motorVars.IsRef_A);
+            motorVars.angleCurrent_rad =
+                MATH_max(FWC_getCurrentAngle_rad(fwcHandle),
+                         MTPA_getCurrentAngle_rad(mtpaHandle));
+
+            currentPhasor.value[0] = cosf(motorVars.angleCurrent_rad);
+            currentPhasor.value[1] = sinf(motorVars.angleCurrent_rad);
+
+            if(motorVars.IsRef_A >= 0.0f)
+            {
+                Idq_ref_A.value[0] = motorVars.IsRef_A * currentPhasor.value[0];
+            }
+            else
+            {
+                Idq_ref_A.value[0] = -(motorVars.IsRef_A * currentPhasor.value[0]);
+            }
+            Idq_ref_A.value[1] = motorVars.IsRef_A * currentPhasor.value[1];
+            Idq_ref_A.value[0] += EST_getIdRated_A(estHandle);
+        }
+    }
+    else
+    {
+        counterFWCandMTPA = 0u;
+        motorVars.IsRef_A = Idq_ref_A.value[1];
+        motorVars.angleCurrent_rad = 0.0f;
+    }
+}
+#endif
+
 void main(void)
 {
     uint16_t estNumber = 0;
@@ -713,6 +861,22 @@ void main(void)
     EST_setFlag_enableForceAngle(estHandle, motorVars.flagEnableForceAngle);
     EST_setFlag_enableRsRecalc(estHandle, motorVars.flagEnableRsRecalc);
 
+    // Rs online recalibration (is10 port): tracks stator-resistance thermal drift while the
+    // motor RUNS by injecting an Id ripple (RsOnLineCurrent_A) and committing the estimate when
+    // it is within 5% of the model Rs (see product_run_rs_online, called from the main loop). OFF by
+    // default: the injection (USER_MOTOR_RES_EST_CURRENT_A) adds copper loss / torque ripple --
+    // bench-validate heating before enabling for flight
+    // (EXTRA_DEFINES="--define=ESC6288_RS_ONLINE_DEFAULT=1").
+#ifndef ESC6288_RS_ONLINE_DEFAULT
+#define ESC6288_RS_ONLINE_DEFAULT  (false)
+#endif
+    motorVars.flagEnableRsOnLine = (bool)(ESC6288_RS_ONLINE_DEFAULT);
+    // Injection magnitude: is10 uses USER_MOTOR_RES_EST_CURRENT_A (4 A here), but that is an
+    // offline-identification current -- as a CONTINUOUS online ripple it dwarfs this motor's
+    // 1-2 A running current and destabilizes FAST (bench 2026-07-02: Rs misread 2x at handoff,
+    // speed estimate collapsed, startup slipped). Use a small fraction of running current.
+    motorVars.RsOnLineCurrent_A  = 1.0f;
+
     EST_setOneOverFluxGain_sf(estHandle, &userParams, USER_EST_FLUX_HF_SF);
     EST_setFreqLFP_sf(estHandle, &userParams, USER_EST_FREQ_HF_SF);
     EST_setBemf_sf(estHandle, &userParams, USER_EST_BEMF_HF_SF);
@@ -738,10 +902,51 @@ void main(void)
     piHandle_spd = PI_init(&pi_spd, sizeof(pi_spd));
     setupControllers();
 
+#ifdef ESC6288_FWC_MTPA
+    // is13: initialize FWC/MTPA, but leave the runtime gate off by default. Enable only
+    // after the speed loop and overmod path are stable on the bench.
+    fwcHandle = FWC_init(&fwc, sizeof(fwc));
+    FWC_setParams(fwcHandle, USER_FWC_KP, USER_FWC_KI,
+                  USER_FWC_MIN_ANGLE_RAD, USER_FWC_MAX_ANGLE_RAD);
+
+    mtpaHandle = MTPA_init(&mtpa, sizeof(mtpa));
+    MTPA_computeParameters(mtpaHandle,
+                           userParams.motor_Ls_d_H,
+                           userParams.motor_Ls_q_H,
+                           userParams.motor_ratedFlux_Wb);
+
+    motorVars.flagEnableFWC = (bool)(ESC6288_FWC_MTPA_DEFAULT);
+    motorVars.flagEnableMTPA = (bool)(ESC6288_FWC_MTPA_DEFAULT);
+    motorVars.flagUpdateMTPAParams = false;
+    motorVars.VsRef_pu = USER_VS_REF_MAG_PU;
+#endif
+
     //
     // initialize the space vector generator module
     //
     svgenHandle = SVGEN_init(&svgen, sizeof(svgen));
+
+#ifdef ESC6288_OVERMOD
+    // is08: 100% SVM generator setup (min PWM width + shunt-measurability limits)
+    svgencurrentHandle = SVGENCURRENT_init(&svgencurrent, sizeof(svgencurrent));
+    {
+        float32_t minWidth_usec = 1.0f;
+        uint16_t minWidth_counts = (uint16_t)(minWidth_usec * USER_SYSTEM_FREQ_MHz);
+        float32_t dutyLimit = 0.5f - (2.0f * minWidth_usec * USER_PWM_FREQ_kHz * 0.001f);
+        SVGENCURRENT_setMinWidth(svgencurrentHandle, minWidth_counts);
+        SVGENCURRENT_setIgnoreShunt(svgencurrentHandle, SVGENCURRENT_USE_ALL);
+        SVGENCURRENT_setMode(svgencurrentHandle, SVGENCURRENT_ALL_PHASE_MEASURABLE);
+        SVGENCURRENT_setVlimit(svgencurrentHandle, dutyLimit);
+    }
+#endif
+
+#ifdef ESC6288_VSF
+    // is12: variable PWM frequency. Runtime target is g_vsf_pwm_freq_Hz; keep disabled
+    // until the fixed-frequency overmod path is bench-proven.
+    vsfHandle = VSF_init(&vsf, sizeof(vsf));
+    VSF_initParams(vsfHandle, &userParams);
+    HAL_setupVSFPWMMode(halHandle);
+#endif
 
     //
     // initialize and configure the speed reference trajectory (Hz)
@@ -890,9 +1095,45 @@ void main(void)
             HAL_clearTimerFlag(halHandle, HAL_CPU_TIMER1);
 
             product_tick_1ms();
+
+#ifdef ESC6288_FWC_MTPA
+            // is13: live debugger tuning for FWC/MTPA. The master gate is
+            // g_fwc_mtpa_enable; motorVars flags mirror it only while SU_RUN below.
+            FWC_setKp(fwcHandle, motorVars.Kp_fwc);
+            FWC_setKi(fwcHandle, motorVars.Ki_fwc);
+            FWC_setAngleMax(fwcHandle, motorVars.angleMax_fwc_rad);
+
+            if(motorVars.flagUpdateMTPAParams == true)
+            {
+                motorVars.LsOnline_d_H =
+                    MTPA_updateLs_d_withLUT(mtpaHandle, motorVars.Is_A);
+                motorVars.LsOnline_q_H =
+                    MTPA_updateLs_q_withLUT(mtpaHandle, motorVars.Is_A);
+                motorVars.fluxOnline_Wb = motorVars.flux_Wb;
+                MTPA_computeParameters(mtpaHandle,
+                                       motorVars.LsOnline_d_H,
+                                       motorVars.LsOnline_q_H,
+                                       motorVars.fluxOnline_Wb);
+            }
+            motorVars.mtpaKconst = MTPA_getKconst(mtpaHandle);
+#endif
         }
 
         motorVars.mainLoopCount++;
+
+#ifdef ESC6288_VSF
+        {
+            uint16_t targetFreq_Hz = g_vsf_enable ? g_vsf_pwm_freq_Hz
+                                                   : PRODUCT_PWM_FREQ_DEFAULT_HZ;
+            VSF_setFreq(vsfHandle, targetFreq_Hz);
+            VSF_computeFreqParams(vsfHandle);
+            if((motorVars.flagMotorIdentified == true) &&
+               (VSF_getState(vsfHandle) != VSF_STATE_IDLE))
+            {
+                computeCurrentControllers();
+            }
+        }
+#endif
 
         //
         // set the reference value for internal DACA and DACB
@@ -955,6 +1196,16 @@ void main(void)
             TRAJ_setTargetValue(trajHandle_spd, motorVars.speedRef_Hz);
             TRAJ_setMaxDelta(trajHandle_spd,
                            (motorVars.accelerationMax_Hzps / USER_ISR_FREQ_Hz));
+
+#ifdef ESC6288_FWC_MTPA
+            {
+                bool fwc_mtpa_live = g_fwc_mtpa_enable && (g_su.state == SU_RUN);
+                motorVars.flagEnableFWC = fwc_mtpa_live;
+                motorVars.flagEnableMTPA = fwc_mtpa_live;
+                FWC_setFlagEnable(fwcHandle, motorVars.flagEnableFWC);
+                MTPA_setFlagEnable(mtpaHandle, motorVars.flagEnableMTPA);
+            }
+#endif
         }
         else if(motorVars.flagEnableOffsetCalc == false)
         {
@@ -977,6 +1228,14 @@ void main(void)
             motorVars.VsRef_pu = USER_MAX_VS_MAG_PU;
             motorVars.IsRef_A = 0.0;
             motorVars.angleCurrent_rad = 0.0;
+#ifdef ESC6288_FWC_MTPA
+            motorVars.flagEnableFWC = false;
+            motorVars.flagEnableMTPA = false;
+            FWC_setFlagEnable(fwcHandle, false);
+            MTPA_setFlagEnable(mtpaHandle, false);
+            counterFWCandMTPA = 0u;
+            motorVars.VsRef_pu = USER_VS_REF_MAG_PU;
+#endif
 
             TRAJ_setTargetValue(trajHandle_spd, 0.0);
             TRAJ_setIntValue(trajHandle_spd, 0.0);
@@ -1022,6 +1281,8 @@ void main(void)
                 setupControllers();
             }
         }
+
+        product_run_rs_online(estHandle);
 
         updateGlobalVariables(estHandle);
 
@@ -1117,6 +1378,96 @@ static inline void startup_step(bool armed, float32_t est_angle_rad, float32_t e
     }
 }
 
+#ifdef ESC6288_VSF
+__interrupt void estISR(void)
+{
+    motorVars.estISRCount++;
+    HAL_ackEstInt(halHandle);
+
+    if(motorVars.flagEnableOffsetCalc == false)
+    {
+        counterTrajSpeed++;
+        if(counterTrajSpeed >= userParams.numIsrTicksPerTrajTick)
+        {
+            counterTrajSpeed = 0;
+            TRAJ_run(trajHandle_spd);
+            motorVars.speedTraj_Hz = TRAJ_getIntValue(trajHandle_spd);
+        }
+
+        estInputData.dcBus_V = adcData.dcBus_V;
+        estInputData.speed_ref_Hz = motorVars.speedTraj_Hz;
+        estInputData.speed_int_Hz = motorVars.speedTraj_Hz;
+
+        if((g_su.state == SU_ALIGN) || (g_su.state == SU_RAMP))
+        {
+            estInputData.speed_ref_Hz = g_su.freq_Hz;
+            estInputData.speed_int_Hz = g_su.freq_Hz;
+        }
+
+        EST_run(estHandle, &estInputData, &estOutputData);
+        EST_getIdq_A(estHandle, (MATH_Vec2 *)(&(Idq_in_A)));
+
+        Idq_ref_A.value[0] = IdqSet_A.value[0];
+        if(g_speed_pi_run && (g_su.state == SU_RUN))
+        {
+            counterSpeed++;
+            if(counterSpeed >= userParams.numCtrlTicksPerSpeedTick)
+            {
+                counterSpeed = 0;
+                PI_run_series(piHandle_spd,
+                              estInputData.speed_ref_Hz,
+                              estOutputData.fm_lp_rps * MATH_ONE_OVER_TWO_PI,
+                              0.0,
+                              (float32_t *)(&(Idq_ref_A.value[1])));
+            }
+        }
+        else
+        {
+            Idq_ref_A.value[1] = IdqSet_A.value[1];
+        }
+
+        startup_step((motorVars.flagRunIdentAndOnLine != 0), estOutputData.angle_rad,
+                     estOutputData.fm_lp_rps / MATH_TWO_PI);
+        if((g_su.state == SU_ALIGN) || (g_su.state == SU_RAMP))
+        {
+            Idq_ref_A.value[0] = (g_su.state == SU_ALIGN) ? g_su.id_align_A : g_su.id_ramp_A;
+            Idq_ref_A.value[1] = 0.0f;
+        }
+        else if(g_su.state == SU_BLEND)
+        {
+            Idq_ref_A.value[0] = (1.0f - g_su.blend) * g_su.id_ramp_A;
+            Idq_ref_A.value[1] = g_su.blend * IdqSet_A.value[1];
+        }
+        else if(g_su.state == SU_FAULT)
+        {
+            Idq_ref_A.value[0] = 0.0f;
+            Idq_ref_A.value[1] = 0.0f;
+            HAL_disablePWM(halHandle);
+            motorVars.faultNow.bit.moduleOverCurrent = 1;
+        }
+
+#ifdef ESC6288_FWC_MTPA
+        product_apply_fwc_mtpa_current_angle();
+#endif
+
+        EST_updateId_ref_A(estHandle, (float32_t *)&(Idq_ref_A.value[0]));
+        EST_setIdq_ref_A(estHandle, &Idq_ref_A);
+
+        angleDelta_rad = userParams.angleDelayed_sf_sec * estOutputData.fm_lp_rps;
+        if((g_su.state == SU_ALIGN) || (g_su.state == SU_RAMP))
+        {
+            angleFoc_rad = g_su.angle_rad;
+        }
+        else
+        {
+            angleFoc_rad = MATH_incrAngle(estOutputData.angle_rad, angleDelta_rad);
+        }
+    }
+
+    return;
+}
+#endif
+
 __interrupt void mainISR(void)
 {
     motorVars.pwmISRCount++;
@@ -1152,6 +1503,13 @@ __interrupt void mainISR(void)
     adcData.V_V.value[1] -= motorVars.offsets_V_V.value[1] * adcData.dcBus_V;
     adcData.V_V.value[2] -= motorVars.offsets_V_V.value[2] * adcData.dcBus_V;
 
+#ifdef ESC6288_OVERMOD
+    // is08: reconstruct phases whose shunt window was unmeasurable this cycle from the
+    // previous cycle. Runs BEFORE the fast-OC check so a collapsed shunt reading cannot
+    // false-trip at high duty.
+    SVGENCURRENT_RunRegenCurrent(svgencurrentHandle, &adcData.I_A, &adcDataPrev);
+#endif
+
 #if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
     // Fast per-phase software overcurrent (20 kHz). Only meaningful once armed (PWM live);
     // during offset cal the gates are OST-forced so getPwmEnableStatus() is false. On trip:
@@ -1176,6 +1534,7 @@ __interrupt void mainISR(void)
         CLARKE_run(clarkeHandle_I, &adcData.I_A, &(estInputData.Iab_A));
         CLARKE_run(clarkeHandle_V, &adcData.V_V, &(estInputData.Vab_V));
 
+#ifndef ESC6288_VSF
         counterTrajSpeed++;
 
         if(counterTrajSpeed >= userParams.numIsrTicksPerTrajTick)
@@ -1263,7 +1622,30 @@ __interrupt void mainISR(void)
             motorVars.faultNow.bit.moduleOverCurrent = 1;
         }
 
+#ifdef ESC6288_FWC_MTPA
+        product_apply_fwc_mtpa_current_angle();
+#endif
+
         EST_updateId_ref_A(estHandle, (float32_t *)&(Idq_ref_A.value[0]));
+#else
+        if((g_su.state == SU_ALIGN) || (g_su.state == SU_RAMP))
+        {
+            // VSF mode runs FAST in estISR; the ADC/current ISR still has to measure
+            // current in the open-loop frame before the current PI executes.
+            phasor.value[0] = cosf(g_su.angle_rad);
+            phasor.value[1] = sinf(g_su.angle_rad);
+            PARK_setPhasor(parkHandle, &phasor);
+            PARK_run(parkHandle, &(estInputData.Iab_A), (MATH_Vec2 *)(&(Idq_in_A)));
+            angleFoc_rad = g_su.angle_rad;
+        }
+        else if(g_su.state == SU_FAULT)
+        {
+            Idq_ref_A.value[0] = 0.0f;
+            Idq_ref_A.value[1] = 0.0f;
+            HAL_disablePWM(halHandle);
+            motorVars.faultNow.bit.moduleOverCurrent = 1;
+        }
+#endif
 
         userParams.maxVsMag_V = userParams.maxVsMag_pu * adcData.dcBus_V;
         PI_setMinMax(piHandle_Id, (-userParams.maxVsMag_V), userParams.maxVsMag_V);
@@ -1284,6 +1666,7 @@ __interrupt void mainISR(void)
                       0.0,
                       &(Vdq_out_V.value[1]));
 
+#ifndef ESC6288_VSF
         EST_setIdq_ref_A(estHandle, &Idq_ref_A);
 
         angleDelta_rad = userParams.angleDelayed_sf_sec * estOutputData.fm_lp_rps;
@@ -1295,6 +1678,7 @@ __interrupt void mainISR(void)
         {
             angleFoc_rad = MATH_incrAngle(estOutputData.angle_rad, angleDelta_rad);
         }
+#endif
 
         phasor.value[0] = cosf(angleFoc_rad);
         phasor.value[1] = sinf(angleFoc_rad);
@@ -1317,10 +1701,40 @@ __interrupt void mainISR(void)
         pwmData.Vabc_pu.value[2] = 0.0;
     }
 
+#ifdef ESC6288_OVERMOD
+    // is08: min-width compensation of the PWM commands (only while the bridge is live), then
+    // steer the next-cycle ADC trigger into the measurable shunt window.
+    if(HAL_getPwmEnableStatus(halHandle) == true)
+    {
+        SVGENCURRENT_compPWMData(svgencurrentHandle, &(pwmData.Vabc_pu), &pwmDataPrev);
+    }
+#endif
+
     //
     // write the PWM compare values
     //
+#ifdef ESC6288_VSF
+    if(g_vsf_enable ||
+       (VSF_getFreq(vsfHandle) != PRODUCT_PWM_FREQ_DEFAULT_HZ) ||
+       (VSF_getState(vsfHandle) != VSF_STATE_IDLE))
+    {
+        VSF_setPeriod(vsfHandle);
+        VSF_getPeriod(vsfHandle, &(pwmData.period));
+        HAL_writePWMAllData(halHandle, &pwmData);
+    }
+    else
+    {
+        HAL_writePWMData(halHandle, &pwmData);
+    }
+#else
     HAL_writePWMData(halHandle, &pwmData);
+#endif
+
+#ifdef ESC6288_OVERMOD
+    ignoreShuntNextCycle = SVGENCURRENT_getIgnoreShunt(svgencurrentHandle);
+    midVolShunt = SVGENCURRENT_getVmid(svgencurrentHandle);
+    HAL_setTrigger(halHandle, &pwmData, ignoreShuntNextCycle, midVolShunt);
+#endif
 
 #ifdef DATALOG_ENABLE
     DATALOG_updateWithDMA(datalogHandle);

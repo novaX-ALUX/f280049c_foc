@@ -293,8 +293,11 @@ extern "C" {
 //!        system requirements that will allow the SVM generator to
 //!        go all the way to trapezoidal.
 //!
-//#define USER_MAX_VS_MAG_PU            (0.66)
+// Overmodulation range: build the is08 bench image with --define=USER_MAX_VS_MAG_PU=0.66
+// (requires ESC6288_OVERMOD so the shunt currents stay measurable). Default stays linear SVM.
+#ifndef USER_MAX_VS_MAG_PU
 #define USER_MAX_VS_MAG_PU            (0.57)
+#endif
 //#define USER_MAX_VS_MAG_PU              (0.5)
 
 

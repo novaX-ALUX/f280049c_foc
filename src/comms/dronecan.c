@@ -218,7 +218,7 @@ static void build_esc_status(dronecan_t *dn, const esc_telemetry_t *tel, droneca
     int32_t rpm;
 
     dronecan_payload_init(&p);
-    dronecan_pack_uint(&p, 0u, 32u);                                       /* error_count = 0 */
+    dronecan_pack_uint(&p, tel->dbg_u32, 32u);                            /* error_count: bench debug channel (0 in normal builds) */
     dronecan_pack_float16(&p, tel->vbus_V);                               /* voltage (V) */
     dronecan_pack_float16(&p, tel->current_A);                            /* current (A) */
     dronecan_pack_float16(&p, tel->temp_C + DRONECAN_KELVIN_OFFSET);      /* temperature (K) */

@@ -115,6 +115,9 @@ typedef struct {
     float       vbus_V;
     float       current_A;
     float       temp_C;
+    uint32_t    dbg_u32;           /* bench debug channel; serialized into esc.Status
+                                    * error_count (normally 0). Producers may pack live
+                                    * internals here for debugger-free observation. */
 } esc_telemetry_t;
 
 #endif /* ESC_TYPES_H */
