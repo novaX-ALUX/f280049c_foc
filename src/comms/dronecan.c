@@ -5,6 +5,15 @@
 
 #define ARM_ZERO_FRAMES_DEFAULT 10u
 
+#ifdef DRONECAN_RAWCMD_DEBUG
+/* Bench forensics (opt-in, --define=DRONECAN_RAWCMD_DEBUG): capture the last RawCommand raw
+ * payload + decode, plus a cumulative nonzero-command census. Debugger-readable; not compiled
+ * into release builds. */
+volatile uint16_t g_dbg_dlc, g_dbg_count, g_dbg_bytes[8], g_dbg_idx, g_dbg_nzb[4];
+volatile int32_t  g_dbg_raw14, g_dbg_maxraw;
+volatile uint32_t g_dbg_nz, g_dbg_nzid;
+#endif
+
 static uint16_t valid_node_id(uint16_t n)
 {
     return (n >= 1u && n <= 127u) ? n : 0u;
@@ -112,6 +121,14 @@ static void handle_raw_command(dronecan_t *dn, const dronecan_frame_t *f, dronec
     payload_from_frame(&p, f, payload_bytes);
     bitpos = (uint16_t)(dn->cfg.esc_index * 14u);
     raw14 = dronecan_unpack_int(&p, &bitpos, 14u);
+
+#ifdef DRONECAN_RAWCMD_DEBUG
+    { uint16_t _i; g_dbg_dlc = f->dlc; g_dbg_count = count; g_dbg_idx = dn->cfg.esc_index;
+      for (_i = 0u; _i < 8u; ++_i) { g_dbg_bytes[_i] = (_i < f->dlc) ? f->data[_i] : 0u; }
+      g_dbg_raw14 = raw14; }
+    if (raw14 != 0) { g_dbg_nz++; g_dbg_maxraw = raw14; g_dbg_nzid = f->id;
+                      { uint16_t _j; for (_j = 0u; _j < 4u; ++_j) g_dbg_nzb[_j] = (_j < f->dlc) ? f->data[_j] : 0u; } }
+#endif
 
     /* Zero-frame arming handshake. */
     {
