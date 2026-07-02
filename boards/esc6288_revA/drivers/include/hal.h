@@ -1276,55 +1276,66 @@ static inline void HAL_setTrigger(HAL_Handle handle, HAL_PWMData_t *pPWMData,
                                   const SVGENCURRENT_IgnoreShunt_e ignoreShunt,
                                   const SVGENCURRENT_VmidShunt_e midVolShunt)
 {
-  HAL_Obj *obj = (HAL_Obj *)handle;
+    HAL_Obj *obj = (HAL_Obj *)handle;
 
-  int16_t pwmNum = midVolShunt;
-  int16_t pwmCMPA = EPWM_getCounterCompareValue(obj->pwmHandle[pwmNum],
-                                                 EPWM_COUNTER_COMPARE_A);
+    uint16_t pwmCMPA[3];
+    int16_t pwmNum = 0;
+    int16_t pwmSOCCMP = 2;
 
-  int16_t pwmSOCCMP = 3;
+    pwmCMPA[0] = EPWM_getCounterCompareValue(obj->pwmHandle[0],
+                                             EPWM_COUNTER_COMPARE_A);
+    pwmCMPA[1] = EPWM_getCounterCompareValue(obj->pwmHandle[1],
+                                             EPWM_COUNTER_COMPARE_A);
+    pwmCMPA[2] = EPWM_getCounterCompareValue(obj->pwmHandle[2],
+                                             EPWM_COUNTER_COMPARE_A);
 
-  if(ignoreShunt == SVGENCURRENT_USE_ALL)
-  {
-      // Set up event source for ADC trigger
-      EPWM_setADCTriggerSource(obj->pwmHandle[0],
-                               EPWM_SOC_A,
-                               EPWM_SOC_TBCTR_D_CMPC);
-  }
-  else
-  {
-      pwmSOCCMP = pwmCMPA - pPWMData->deadband[pwmNum] -
-              pPWMData->noiseWindow;
+    if(ignoreShunt == SVGENCURRENT_USE_ALL)
+    {
+        EPWM_setADCTriggerSource(obj->pwmHandle[0],
+                                 EPWM_SOC_A,
+                                 EPWM_SOC_TBCTR_D_CMPC);
+    }
+    else
+    {
+        if(midVolShunt == SVGENCURRENT_VMID_A)
+        {
+            pwmNum = 0;
+        }
+        else if(midVolShunt == SVGENCURRENT_VMID_B)
+        {
+            pwmNum = 1;
+        }
+        else
+        {
+            pwmNum = 2;
+        }
 
-      if(pwmSOCCMP < 0)
-      {
-          pwmSOCCMP = 3;
+        pwmSOCCMP = (int16_t)pwmCMPA[pwmNum] -
+                    (int16_t)pPWMData->deadband[pwmNum] -
+                    (int16_t)pPWMData->noiseWindow;
 
-          // Set up event source for ADC trigger
-          EPWM_setADCTriggerSource(obj->pwmHandle[0],
-                                   EPWM_SOC_A,
-                                   EPWM_SOC_TBCTR_U_CMPC);
-      }
-      else
-      {
-          pwmSOCCMP = 3;
+        if(pwmSOCCMP < 0)
+        {
+            pwmSOCCMP = -pwmSOCCMP;
+            EPWM_setADCTriggerSource(obj->pwmHandle[0],
+                                     EPWM_SOC_A,
+                                     EPWM_SOC_TBCTR_U_CMPC);
+        }
+        else
+        {
+            EPWM_setADCTriggerSource(obj->pwmHandle[0],
+                                     EPWM_SOC_A,
+                                     EPWM_SOC_TBCTR_D_CMPC);
+        }
 
-          // Set up event source for ADC trigger
-          EPWM_setADCTriggerSource(obj->pwmHandle[0],
-                                   EPWM_SOC_A,
-                                   EPWM_SOC_TBCTR_D_CMPC);
-      }
+    }
 
-  }
+    pPWMData->socCMP = pwmSOCCMP;
 
-  //
-  pPWMData->socCMP = pwmSOCCMP;
-
-  // write the PWM data value  for ADC trigger
-  EPWM_setCounterCompareValue(obj->pwmHandle[0],
-                              EPWM_COUNTER_COMPARE_C,
-                              pwmSOCCMP);
-  return;
+    EPWM_setCounterCompareValue(obj->pwmHandle[0],
+                                EPWM_COUNTER_COMPARE_C,
+                                (uint16_t)pwmSOCCMP);
+    return;
 } // end of HAL_setTrigger() function
 
 #ifdef __cplusplus

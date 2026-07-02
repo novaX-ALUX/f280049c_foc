@@ -133,10 +133,10 @@ static volatile bool g_fwc_mtpa_enable = ESC6288_FWC_MTPA_DEFAULT;
 #endif
 
 #ifdef ESC6288_OVERMOD
-// is08 overmodulation port (opt-in): SVGENCURRENT reconstructs phase currents whose low-side
-// shunt window collapses at high duty, compensates PWM min-width, and steers the ADC trigger
-// into the measurable window. Build with --define=ESC6288_OVERMOD (optionally raise
-// USER_MAX_VS_MAG_PU to 0.66 for the extended modulation range).
+// is08 overmodulation port (opt-in, not flight-ready): SVGENCURRENT reconstructs phase currents
+// whose low-side shunt window collapses at high duty, compensates PWM min-width, and steers the
+// ADC trigger into the measurable window. Bench 2026-07-02: 0.5+overmod still collapses at WOT,
+// so keep disabled until loaded test-stand validation proves the reconstruction path.
 SVGENCURRENT_Obj    svgencurrent;
 SVGENCURRENT_Handle svgencurrentHandle;
 MATH_Vec3 adcDataPrev = {0.0f, 0.0f, 0.0f};      //!< previous-cycle currents for reconstruction
@@ -1038,6 +1038,10 @@ void main(void)
     // setup faults
     //
     HAL_setupFaults(halHandle);
+
+#ifdef ESC6288_OVERMOD
+    HAL_setOvmParams(halHandle, &pwmData);
+#endif
 
     //
     // enable the gate driver. On launchxl this asserts EN_GATE and configures the DRV8305

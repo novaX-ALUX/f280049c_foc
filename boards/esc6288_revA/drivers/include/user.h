@@ -293,12 +293,16 @@ extern "C" {
 //!        system requirements that will allow the SVM generator to
 //!        go all the way to trapezoidal.
 //!
-// Overmodulation range: build the is08 bench image with --define=USER_MAX_VS_MAG_PU=0.66
-// (requires ESC6288_OVERMOD so the shunt currents stay measurable). Default stays linear SVM.
+// Default = 0.5: pure-sine peak at 86.6% duty -> a comfortable low-side shunt window, so NO
+// current reconstruction is needed (TI's documented safe value above). The SDK/LaunchPad
+// template shipped 0.57 (~1/sqrt(3)=0.5774, ~98.7% peak duty, <1us shunt window) -- which by
+// TI's own note is already in the "reconstruction needed (Lab08)" region, unsafe on the default
+// build that has no SVGENCURRENT. Keep higher voltage utilization behind ESC6288_OVERMOD:
+// esc6288 no-prop bench still shows WOT collapse even at 0.5+overmod after partial fixes
+// (2026-07-02), so do not promote 0.57/0.66 until test-stand validation proves it.
 #ifndef USER_MAX_VS_MAG_PU
-#define USER_MAX_VS_MAG_PU            (0.57)
+#define USER_MAX_VS_MAG_PU            (0.5)
 #endif
-//#define USER_MAX_VS_MAG_PU              (0.5)
 
 
 //! \brief Defines the reference Vs magnitude in per units allowed
