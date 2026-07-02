@@ -300,14 +300,31 @@ if [ "$PRODUCT" = "1" ]; then
     "$MCSDK/libraries/observers/fast/lib/f28004x/f28004x_fast_rom_symbols_fpu32_eabi.lib"
     "$MCSDK/libraries/observers/mpid/lib/fluxHF_eabi.lib"
   )
-  LNK=( "$BD/cmd/f28004x_ram_cpu_is_eabi.cmd" "$DEV/headers/cmd/f28004x_headers_nonbios.cmd" )
+  # FLASH=1 -> standalone-boot image: flash-linked (.text/.cinit/.const in flash, .TI.ramfunc
+  # copied to RAM at boot) + _FLASH so HAL_setupClocks does Flash_initModule + the ramfunc memcpy.
+  # The board straps GPIO24=GPIO32=high (flash boot), so a programmed image auto-runs with no
+  # debugger -- required for the CAN-only test stand. Default (unset) stays the RAM image.
+  if [ "${FLASH:-0}" = "1" ]; then
+    DEFINES="$DEFINES --define=_FLASH"
+    # --rom_model: emit the compressed .cinit auto-init table so the C startup initializes RAM
+    # globals from flash on a standalone cold boot. Without it the link uses the RAM model
+    # (.cinit length 0, __TI_auto_init_nobinit_nopinit) -- fine for a debugger RAM load (which
+    # writes the RAM sections) but on flash cold-boot leaves every initialized global uninitialized
+    # (offsetCalcWaitTime, motorVars, g_su self-start params ...) -> garbage offset cal + no start.
+    RUNTIME_MODEL="--rom_model"
+    LNK=( "$BD/cmd/f28004x_flash_cpu_is_eabi.cmd" "$DEV/headers/cmd/f28004x_headers_nonbios.cmd" )
+    echo ">>> FLASH standalone-boot image"
+  else
+    RUNTIME_MODEL="--ram_model"
+    LNK=( "$BD/cmd/f28004x_ram_cpu_is_eabi.cmd" "$DEV/headers/cmd/f28004x_headers_nonbios.cmd" )
+  fi
 
   echo ">>> PRODUCT BOARD=$BOARD  MOTOR=$MOTOR  ESC_INDEX=$ESC_INDEX  NODE_ID=$NODE_ID  MCSDK=$MCSDK"
   echo ">>> CGT=$($CL --compiler_revision)"
   for s in "${C_SRCS[@]}"; do echo "  CC $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done
   for s in "${ASM_SRCS[@]}"; do echo "  AS $(basename "$s")"; "$CL" $CFLAGS "${INC[@]}" $DEFINES -c "$s"; done
   echo ">>> Linking product.out ..."
-  "$CL" --abi=eabi -z --reread_libs -m "product.map" --entry_point=code_start --stack_size=0x300 \
+  "$CL" --abi=eabi -z $RUNTIME_MODEL --reread_libs -m "product.map" --entry_point=code_start --stack_size=0x300 \
     -i"$DLIB/math/FPUfastRTS/c28/lib" -i"$CGT/lib" \
     *.obj "${LIBS[@]}" "${LNK[@]}" -llibc.a -w -o "product.out"
   echo ">>> DONE: $OUT/product.out"; ls -la "product.out"
