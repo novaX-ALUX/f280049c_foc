@@ -64,8 +64,10 @@
 #define BOARD_CAN_TX_PINCFG                 GPIO_37_CANA_TX
 #define BOARD_CAN_RX_GPIO                   (35U)
 #define BOARD_CAN_RX_PINCFG                 GPIO_35_CANA_RX
-#define BOARD_CAN_BITRATE                   (1000000UL)   // 1 Mbit/s
 #define BOARD_CAN_INT                       INT_CANA0
+#ifndef BOARD_CAN_BITRATE
+#define BOARD_CAN_BITRATE                   (1000000UL)   // 1 Mbit/s (DroneCAN default; override for bench, e.g. --define=BOARD_CAN_BITRATE=500000UL)
+#endif
 
 // ---- Encoder SPI (SPIA, MT6701 SSI over the SPI clock, GH1 connector) ----
 #define BOARD_ENC_SPI_BASE                  SPIA_BASE

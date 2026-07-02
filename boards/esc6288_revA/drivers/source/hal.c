@@ -1070,13 +1070,15 @@ void HAL_setupGPIOs(HAL_Handle handle)
     GPIO_setDirectionMode(34, GPIO_DIR_MODE_OUT);
     GPIO_setPadConfig(34, GPIO_PIN_TYPE_STD);
 
-    // TDI
+    // GPIO35 = CANA_RX (esc6288 uses this pin for CAN, NOT JTAG TDI -- the XDS110 is wired
+    // 2-wire cJTAG, only TMS/TCK/GND, so TDI/TDO are free). can_bridge_init() reconfigures
+    // these fully; set the CAN mux here too so the pin is never momentarily a JTAG function.
     GPIO_setMasterCore(35, GPIO_CORE_CPU1);
-    GPIO_setPinConfig(GPIO_35_TDI);
+    GPIO_setPinConfig(GPIO_35_CANA_RX);
 
-    // TDO
+    // GPIO37 = CANA_TX (not JTAG TDO -- see above)
     GPIO_setMasterCore(37, GPIO_CORE_CPU1);
-    GPIO_setPinConfig(GPIO_37_TDO);
+    GPIO_setPinConfig(GPIO_37_CANA_TX);
 
     // GPIO39->Reserve (N/A)
     GPIO_setMasterCore(39, GPIO_CORE_CPU1);
