@@ -197,10 +197,21 @@ esc_result_t esc_control_step(esc_control_state_t *st,
             st->iq_ref_A = 0.0f;
             break;
         }
-        mode   = ESC_CTRL_TORQUE;
-        enable = true;
-        slew_to(&st->iq_ref_A, throttle * c->iq_max_A, c->iq_slew_A_s, dt_s);
-        iq_ref = st->iq_ref_A;
+        if (c->speed_run_enable) {
+            /* Closed speed loop (is07): throttle maps to a speed reference; the FOC-side speed
+             * PI owns Iq. iq_limit advertises the torque authority bound (same cap as torque
+             * mode). No slew here: the downstream trajectory generator rate-limits the ref. */
+            mode      = ESC_CTRL_SPEED;
+            enable    = true;
+            speed_ref = throttle * c->speed_max_krpm;
+            iq_limit  = c->iq_max_A;
+            st->iq_ref_A = 0.0f;
+        } else {
+            mode   = ESC_CTRL_TORQUE;
+            enable = true;
+            slew_to(&st->iq_ref_A, throttle * c->iq_max_A, c->iq_slew_A_s, dt_s);
+            iq_ref = st->iq_ref_A;
+        }
         if (c->auto_park_enable
             && throttle <= c->throttle_idle_eps
             && fabsf(fb->speed_est_krpm) < c->park_engage_speed_krpm

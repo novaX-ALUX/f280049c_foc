@@ -471,5 +471,45 @@ int main(void)
         CHECK((t.status_bits & ESC_ST_FAILSAFE_COAST) != 0u);   /* it coasted */
     }
 
+    /* Speed-RUN mode (is07 port): RUN emits ESC_CTRL_SPEED with throttle-scaled reference. */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);
+        c.speed_run_enable = true;
+        c.speed_max_krpm   = 5.0f;
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);
+        CHECK(t.state == ESC_STATE_RUN_TORQUE);          /* same RUN state, speed emission */
+        CHECK(o.mode == ESC_CTRL_SPEED);
+        CHECK(o.enable);
+        CHECK(o.speed_ref_krpm > 2.49f && o.speed_ref_krpm < 2.51f);  /* 0.5 * 5.0 */
+        CHECK(o.iq_ref_A == 0.0f);                       /* speed PI owns Iq downstream */
+        CHECK(o.iq_limit_A == c.iq_max_A);               /* torque authority bound advertised */
+
+        /* throttle change tracks linearly (no slew on the ref; TRAJ smooths downstream) */
+        drive(&st, 1.0f, true, &fb, 0.001f, &o, &t);
+        CHECK(o.speed_ref_krpm > 4.99f && o.speed_ref_krpm < 5.01f);
+
+        /* disarm from speed-RUN coasts */
+        drive(&st, 0.0f, false, &fb, 0.001f, &o, &t);
+        CHECK(!o.enable);
+        CHECK(o.speed_ref_krpm == 0.0f);
+    }
+
+    /* Speed-RUN disabled (default cfg): RUN stays the torque path, byte-identical behavior. */
+    {
+        g_ref_valid = true; g_seq = 0;
+        esc_control_cfg_t c = make_cfg(false, 1.0e6f);   /* speed_run_enable defaults false */
+        esc_control_state_t st;
+        esc_control_init(&st, &c, ref_load, NULL);
+        esc_feedback_t fb = nominal_fb();
+        reach_run(&st, &fb, &o, &t);
+        CHECK(o.mode == ESC_CTRL_TORQUE);
+        CHECK(o.speed_ref_krpm == 0.0f);
+        CHECK(o.iq_ref_A > 0.0f);
+    }
+
     CHECK_DONE();
 }

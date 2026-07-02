@@ -300,6 +300,16 @@ static void product_build_esc_cfg(esc_control_cfg_t *c)
     c->failsafe_brake       = false;    // coast on link loss
 
 #if (BUILD_BOARD_ID == BUILD_BOARD_ID_ESC6288_REVA)
+    // Closed speed loop in RUN (is07 port): OFF by default (torque RUN stays the validated
+    // path). The same ESC6288_SPEED_MODE_DEFAULT build define that opens the product-side gate
+    // (SPEED_PATH_ALLOWED) also selects the esc_control speed-RUN mode, so one define flips the
+    // whole chain consistently. Full throttle maps to the motor's rated speed.
+#ifndef ESC6288_SPEED_MODE_DEFAULT
+#define ESC6288_SPEED_MODE_DEFAULT  (false)
+#endif
+    c->speed_run_enable = (bool)(ESC6288_SPEED_MODE_DEFAULT);
+    c->speed_max_krpm   = (float)USER_MOTOR_RATED_SPEED_KRPM;   // 4116: 5.0 krpm at throttle=1.0
+
     // esc6288_revA / 12S target (conservative bench bring-up defaults; raise after
     // validation). Hardware backstops: CMPSS3 phase-C OC + CMPSS5 bus OV (~56 V). These
     // software limits are the PRIMARY protection for phases A/B (which have no CMPSS).
@@ -357,8 +367,11 @@ static void product_init(void)
 
     g_fbcfg.pole_pairs     = (float)USER_MOTOR_NUM_POLE_PAIRS;
     g_fbcfg.iq_cmd_limit_A = 6.0f;   // redundant hard cap, just above iq_max_A
-    g_fbcfg.speed_max_hz   = 100.0f; // speed-mode |speedRef| clamp (elec Hz); bench-tune. The
-                                     // speed path is gated OFF by default (SPEED_PATH_ALLOWED).
+    // speed-mode |speedRef| ceiling (elec Hz), from the motor profile. Full-throttle speed-RUN
+    // commands rated speed (speed_max_krpm), which must clear this clamp: e.g. 4116 rated
+    // 5 krpm * 7 pp = 583 Hz < 800 Hz profile max. (Was 100 Hz in the park-only era -- that
+    // silently capped the is07 speed loop at ~857 rpm on the bench, 2026-07-02.)
+    g_fbcfg.speed_max_hz   = (float)USER_MOTOR_FREQ_MAX_HZ;
 
     // Seed the persisted-parameter mirror. A real build would decode it from Flash here
     // (nvparam_decode of the read-back words); that read is deferred, so we start at
@@ -439,14 +452,14 @@ static void product_init(void)
 #endif
 }
 
-// ---- Speed-mode gate (controlled skeleton) ----
+// ---- Speed-mode gate ----
 // The product speed path is OFF by default and is a fail-safe disable unless BOTH (a) this is the
 // esc6288 board AND (b) the runtime flag g_speed_mode_enable is set (flip via debugger, or a
 // future DroneCAN param). The build default of that flag is ESC6288_SPEED_MODE_DEFAULT; flip it
 // from the standard build entry with EXTRA_DEFINES="--define=ESC6288_SPEED_MODE_DEFAULT=1" (see
-// build.sh). Even when allowed, the speed path only LANDS
-// motorVars.speedRef_Hz; the ISR speed-PI is deferred, so enabling the gate alone does NOT close
-// the loop (Iq stays 0) -- the skeleton is safe to compile and ship.
+// build.sh). When allowed, apply_setpoint lands motorVars.speedRef_Hz AND arms the ISR speed PI
+// (is07 port): once the I/f self-start hands off (SU_RUN), PI_run_series(piHandle_spd) closes
+// speed_ref -> Iq_ref every numCtrlTicksPerSpeedTick. Bench-validate before enabling by default.
 #ifndef ESC6288_SPEED_MODE_DEFAULT
 #define ESC6288_SPEED_MODE_DEFAULT  (false)
 #endif
@@ -456,6 +469,12 @@ static volatile bool g_speed_mode_enable = ESC6288_SPEED_MODE_DEFAULT;
 #else
 #define SPEED_PATH_ALLOWED()   (false)
 #endif
+
+// True while apply_setpoint is landing a closed-speed-loop command; read by the ISR to decide
+// whether the speed PI owns Idq_ref_A.value[1] (vs the torque path copying IdqSet_A each tick).
+// Single-word bool: 1 ms writer / 20 kHz reader, no atomicity issue; a one-tick stale value at a
+// mode transition is bounded by the current-PI limits.
+static volatile bool g_speed_pi_run = false;
 
 //! \brief Land the FOC setpoint on the SDK control variables. Torque is the only closed path
 //!        today; the speed path is a gated skeleton (see SPEED_PATH_ALLOWED above).
@@ -472,6 +491,7 @@ static void apply_setpoint(const foc_setpoint_t *sp_in)
     {
         // Coast: drop the run flag and zero Iq. launchxl has no active short-brake yet
         // (brake degrades to disable); a real brake is deferred to esc6288.
+        g_speed_pi_run = false;
         IdqSet_A.value[1] = 0.0f;
         motorVars.flagRunIdentAndOnLine = 0;
         return;
@@ -479,12 +499,13 @@ static void apply_setpoint(const foc_setpoint_t *sp_in)
 
     if(sp.speed_mode == true)
     {
-        // Speed skeleton (reached only when the gate allows it): land the clamped speed
-        // reference on the SDK control variable and arm once offset cal is done. The ISR
-        // speed-PI consumption is deferred, so Iq stays 0 and the loop remains open here.
+        // Closed speed loop (is07 port; reached only when the gate allows it): land the clamped
+        // speed reference on the SDK control variable and hand Iq ownership to the ISR speed PI
+        // (it closes speed_ref -> Iq_ref once the self-start reaches SU_RUN).
         IdqSet_A.value[0] = 0.0f;
-        IdqSet_A.value[1] = 0.0f;              // speed PI (ISR, deferred) will own Iq
+        IdqSet_A.value[1] = 0.0f;              // ISR speed PI owns Iq from SU_RUN onward
         motorVars.speedRef_Hz = sp.speed_ref_hz;
+        g_speed_pi_run = true;
         // Arm once offset cal is done AND no fault is latched. The fault gate makes a startup
         // slip/OC latch STICKY: without it, the main loop clears flagRun on faultUse but this
         // re-arms every 1 ms while the throttle is held -> the startup SM retries and repeatedly
@@ -498,6 +519,7 @@ static void apply_setpoint(const foc_setpoint_t *sp_in)
     }
 
     // Torque: the ISR copies IdqSet_A -> Idq_ref_A directly (no speed loop).
+    g_speed_pi_run = false;
     IdqSet_A.value[0] = 0.0f;
     IdqSet_A.value[1] = sp.iq_ref_A;
     // Arm once offset cal is done AND no fault is latched (fault gate makes a startup slip/OC
@@ -1180,9 +1202,33 @@ __interrupt void mainISR(void)
 
         EST_getIdq_A(estHandle, (MATH_Vec2 *)(&(Idq_in_A)));
 
-        // set reference current (torque control: direct Iq from the product layer)
+        // set reference current. Torque mode copies Iq from the product layer every tick; in
+        // closed speed mode (is07 port) the speed PI below OWNS Idq_ref_A.value[1] -- it runs
+        // every numCtrlTicksPerSpeedTick and its output must persist between speed ticks, so it
+        // must not be clobbered from IdqSet_A. The speed loop engages only after the I/f
+        // self-start hands off (SU_RUN); during ALIGN/RAMP/BLEND the startup overrides below own
+        // the reference anyway.
         Idq_ref_A.value[0] = IdqSet_A.value[0];
-        Idq_ref_A.value[1] = IdqSet_A.value[1];
+        if(g_speed_pi_run && (g_su.state == SU_RUN))
+        {
+            counterSpeed++;
+            if(counterSpeed >= userParams.numCtrlTicksPerSpeedTick)
+            {
+                counterSpeed = 0;
+                // is07 speed loop: series PI on (speed_ref - FAST speed estimate) -> Iq_ref.
+                // Output limits are +/- userParams.maxCurrent_A (setupControllers); Ui is reset
+                // by the main-loop stop path (PI_setUi) whenever the motor is stopped.
+                PI_run_series(piHandle_spd,
+                              estInputData.speed_ref_Hz,
+                              estOutputData.fm_lp_rps * MATH_ONE_OVER_TWO_PI,
+                              0.0,
+                              (float32_t *)(&(Idq_ref_A.value[1])));
+            }
+        }
+        else
+        {
+            Idq_ref_A.value[1] = IdqSet_A.value[1];
+        }
 
         // open-loop I/f self-start (esc6288): ALIGN/RAMP drive Id at an open-loop angle until FAST
         // coheres, then BLEND to the normal FAST-angle + throttle path. See g_su / startup_step().

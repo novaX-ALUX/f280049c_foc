@@ -25,6 +25,13 @@ typedef struct {
     float iq_slew_A_s;          /* torque ramp rate */
     float cmd_timeout_s;        /* link-loss failsafe */
     float throttle_run_thresh;  /* above -> RUN_TORQUE */
+
+    /* Closed speed loop in RUN (is07 port). When enabled, the RUN state emits ESC_CTRL_SPEED
+     * with speed_ref = throttle * speed_max_krpm (downstream TRAJ rate-limits the reference;
+     * the ISR speed PI is current-limited by the SDK controller setup). Default false: RUN
+     * stays the validated throttle->Iq torque path. */
+    bool  speed_run_enable;
+    float speed_max_krpm;       /* throttle = 1.0 -> this speed reference */
     float throttle_idle_eps;    /* at/below -> idle/park-eligible */
     float park_engage_speed_krpm; /* |speed| below -> may auto-park */
     bool  auto_park_enable;     /* master enable for autonomous parking */
