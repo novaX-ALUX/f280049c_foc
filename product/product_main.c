@@ -414,8 +414,9 @@ static void product_init(void)
         const uint16_t sw[5][3] = { {255u,0u,0u}, {0u,255u,0u}, {0u,0u,255u}, {255u,255u,255u}, {0u,0u,0u} };
         uint16_t ci, di;
         for (ci = 0u; ci < 5u; ci++) {
-            RGB_setColor((uint8_t)sw[ci][0], (uint8_t)sw[ci][1], (uint8_t)sw[ci][2]);
-            for (di = 0u; di < 40u; di++) { SysCtl_delay(500000U); }   /* ~1 s hold per color */
+            /* Drive 2 chained LEDs (RGB1 + GH3 external connector) so the external one is exercised too. */
+            RGB_setColorN(2u, (uint8_t)sw[ci][0], (uint8_t)sw[ci][1], (uint8_t)sw[ci][2]);
+            for (di = 0u; di < 120u; di++) { SysCtl_delay(500000U); }   /* ~3 s hold per color */
         }
     }
 #endif

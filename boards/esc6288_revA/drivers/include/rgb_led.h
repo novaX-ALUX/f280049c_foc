@@ -19,4 +19,8 @@ void RGB_init(void);
 //! \brief Set the first LED (RGB1) to (r,g,b) and latch. Masks interrupts during the frame.
 void RGB_setColor(uint8_t r, uint8_t g, uint8_t b);
 
+//! \brief Set the first `count` daisy-chained LEDs (RGB1, then the GH3 external connector) all to
+//!        (r,g,b) and latch. count=1 is equivalent to RGB_setColor.
+void RGB_setColorN(uint8_t count, uint8_t r, uint8_t g, uint8_t b);
+
 #endif /* ESC6288_RGB_LED_H */

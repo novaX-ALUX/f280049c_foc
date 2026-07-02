@@ -68,15 +68,20 @@ void RGB_init(void)
     RGB_setColor(0U, 0U, 0U);
 }
 
-void RGB_setColor(uint8_t r, uint8_t g, uint8_t b)
+void RGB_setColorN(uint8_t count, uint8_t r, uint8_t g, uint8_t b)
 {
     bool was_disabled;
+    uint8_t i;
 
     /* Mask interrupts so an ISR can't stretch a bit and corrupt the frame. */
     was_disabled = Interrupt_disableGlobal();
-    ws_send_byte(g);
-    ws_send_byte(r);
-    ws_send_byte(b);
+    /* One GRB triplet per daisy-chained LED (RGB1 on-board, then the GH3 external connector). */
+    for(i = 0U; i < count; i++)
+    {
+        ws_send_byte(g);
+        ws_send_byte(r);
+        ws_send_byte(b);
+    }
     if(!was_disabled)
     {
         Interrupt_enableGlobal();
@@ -84,4 +89,9 @@ void RGB_setColor(uint8_t r, uint8_t g, uint8_t b)
 
     /* >50 us low latches the data into the LED(s). */
     SysCtl_delay((uint32_t)(WS_RESET_US * (DEVICE_SYSCLK_FREQ / 1000000UL) / 5UL));
+}
+
+void RGB_setColor(uint8_t r, uint8_t g, uint8_t b)
+{
+    RGB_setColorN(1U, r, g, b);   /* just the first LED (RGB1 status) */
 }
